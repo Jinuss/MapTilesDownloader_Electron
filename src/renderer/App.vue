@@ -1,54 +1,15 @@
-<template>
-  <div class="container">
-    <div ref="mapContainer" class="map-container"></div>
-
-    <div class="controls">
-      <label
-        >最小缩放:
-        <input type="number" v-model.number="minZoom" min="0" max="20"
-      /></label>
-      <label
-        >最大缩放:
-        <input type="number" v-model.number="maxZoom" min="0" max="20"
-      /></label>
-
-      <div class="url-template">
-        <label>瓦片URL模板:</label>
-        <input
-          v-model="urlTemplate"
-          placeholder="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-        />
-      </div>
-
-      <button @click="selectArea">选择区域</button>
-      <button @click="downloadTiles" :disabled="isDownloading">开始下载</button>
-
-      <div v-if="activeJob" class="job-status">
-        <h3>下载状态: {{ activeJob.status }}</h3>
-        <progress :value="progressValue" :max="progressMax"></progress>
-        <div class="stats">
-          <span>完成: {{ completedTiles }} / {{ totalTiles }}</span>
-          <span>成功: {{ successCount }}</span>
-          <span>失败: {{ failCount }}</span>
-          <span>跳过: {{ skipCount }}</span>
-        </div>
-      </div>
-    </div>
-  </div>
-</template>
-
 <script setup>
 import { ref, onMounted, onUnmounted } from "vue";
+import BaseMap from "./components/BaseMap.vue";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-
-const mapContainer = ref(null);
-let map = null;
 let rectangle = null;
 
 const minZoom = ref(5);
 const maxZoom = ref(10);
-const urlTemplate = ref("https://webrd01.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=7&x={x}&y={y}&z={z}");
+const urlTemplate = ref(
+  "https://webrd01.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=7&x={x}&y={y}&z={z}"
+);
 const isDownloading = ref(false);
 const activeJob = ref(null);
 
@@ -61,19 +22,12 @@ const progressValue = ref(0);
 const progressMax = ref(100);
 
 onMounted(() => {
-  // 初始化地图
-  map = L.map(mapContainer.value).setView([39.9, 116.4], 10);
-  L.tileLayer(urlTemplate.value).addTo(map);
-
   // 设置事件监听
   window.electronAPI.onTileProgress(handleTileProgress);
   window.electronAPI.onJobCreated(handleJobCreated);
   window.electronAPI.onJobUpdate(handleJobUpdate);
 });
 
-onUnmounted(() => {
-  if (map) map.remove();
-});
 
 function selectArea() {
   // 清除之前的选区
@@ -118,7 +72,7 @@ async function downloadTiles() {
       maxZoom: maxZoom.value,
       urlTemplate: urlTemplate.value,
     });
-    console.log("🚀 ~ downloadTiles ~ job:", job)
+    console.log("🚀 ~ downloadTiles ~ job:", job);
 
     activeJob.value = {
       id: job.id,
@@ -175,17 +129,49 @@ function handleJobUpdate(update) {
   }
 }
 </script>
+<template>
+  <div class="container">
+    <BaseMap />
 
-<style>
+    <div class="controls">
+      <label
+        >最小缩放:
+        <input type="number" v-model.number="minZoom" min="0" max="20"
+      /></label>
+      <label
+        >最大缩放:
+        <input type="number" v-model.number="maxZoom" min="0" max="20"
+      /></label>
+
+      <div class="url-template">
+        <label>瓦片URL模板:</label>
+        <input
+          v-model="urlTemplate"
+          placeholder="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+        />
+      </div>
+
+      <button @click="selectArea">选择区域</button>
+      <button @click="downloadTiles" :disabled="isDownloading">开始下载</button>
+
+      <div v-if="activeJob" class="job-status">
+        <h3>下载状态: {{ activeJob.status }}</h3>
+        <progress :value="progressValue" :max="progressMax"></progress>
+        <div class="stats">
+          <span>完成: {{ completedTiles }} / {{ totalTiles }}</span>
+          <span>成功: {{ successCount }}</span>
+          <span>失败: {{ failCount }}</span>
+          <span>跳过: {{ skipCount }}</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</template>
+<style scoped>
 .container {
   display: flex;
   flex-direction: column;
   height: 100vh;
-}
-
-.map-container {
-  flex: 1;
-  min-height: 500px;
 }
 
 .controls {

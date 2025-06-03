@@ -2,7 +2,6 @@ const { parentPort, workerData } = require('worker_threads');
 const path = require('path');
 const fs = require('fs-extra');
 const axios = require('axios');
-const os = require('os');
 
 // 获取存储目录和workerId
 const storageDir = workerData?.storageDir;
