@@ -5,7 +5,7 @@
   "main": "src/main/main.js",
   "scripts": {
     "dev": "concurrently \"vite --config src/renderer/vite.config.js\" \"electron .\"",
-    "start": "electron .",
+    "start": "vite --config src/renderer/vite.config.js",
     "build": "electron-builder",
     "watch": "concurrently \"npm run watch:renderer\" \"npm run watch:backend\"",
     "watch:renderer": "vite build --watch",
@@ -26,6 +26,7 @@
   "dependencies": {
     "axios": "^1.9.0",
     "electron-is-dev": "^3.0.1",
+    "element-plus": "^2.9.11",
     "express": "^5.1.0",
     "fs-extra": "^11.3.0",
     "leaflet": "^1.9.4",

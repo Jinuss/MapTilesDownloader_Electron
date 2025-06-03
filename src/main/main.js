@@ -1,5 +1,5 @@
 // main.js
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain,session } = require('electron');
 const path = require('path');
 const TileService = require('../backend/TileService');
 
@@ -30,6 +30,8 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  const userAgent = session.defaultSession.getUserAgent()
+  console.log('useAgent', userAgent)
   // 创建主窗口
   createWindow();
 
