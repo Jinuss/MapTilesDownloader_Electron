@@ -51,7 +51,7 @@ function selectArea() {
     {
       color: "#ff7800",
       weight: 1,
-      fillOpacity: 0.2,
+      fillOpacity: 0.05,
     }
   ).addTo(map);
 
@@ -143,8 +143,9 @@ const cascaderProps = {
   value: "code",
   checkStrictly: true,
 };
-
-const getAreaCode = ref(areaCode.value);
+const areaRef = ref(null);
+const getAreaCode = ref([areaCode.value]);
+console.log("🚀 ~ getAreaCode:", getAreaCode.value);
 
 const handleChangeCode = (value) => {
   const code = value[value.length - 1];
@@ -153,6 +154,8 @@ const handleChangeCode = (value) => {
   mapStore.$patch({
     areaCode: code,
   });
+
+  areaRef.value?.togglePopperVisible();
 };
 </script>
 <template>
@@ -186,6 +189,7 @@ const handleChangeCode = (value) => {
     <div class="form-item">
       <label for="">选择行政区划</label>
       <el-cascader
+        ref="areaRef"
         v-model="getAreaCode"
         :options="areaList"
         :props="cascaderProps"
