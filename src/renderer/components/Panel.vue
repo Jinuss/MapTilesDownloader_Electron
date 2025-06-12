@@ -5,8 +5,10 @@ import { areaList } from "@/lib/areaCode";
 import { useMapStore } from "@/stores";
 import { BASE_MAP_TILES_URL } from "@/const";
 import { storeToRefs } from "pinia";
+import { flattenTree,getAreaFullPath } from "@/util/index";
 
-console.log("🚀 ~ areaList:", areaList);
+const flatAreaList = flattenTree(areaList);
+
 const mapStore = useMapStore();
 const { areaCode } = storeToRefs(mapStore);
 const zoom = ref([6, 12]);
@@ -137,15 +139,26 @@ function handleJobUpdate(update) {
 }
 
 const cascaderProps = {
-  expandTrigger: "hover",
   children: "children",
   label: "chnName",
   value: "code",
   checkStrictly: true,
 };
 const areaRef = ref(null);
-const getAreaCode = ref([areaCode.value]);
-console.log("🚀 ~ getAreaCode:", getAreaCode.value);
+
+const getAreaCode = ref([]);
+
+watch(
+  () => areaCode.value,
+  (newCode, oldCode) => {
+    const area = flatAreaList.find((item) => item.code == newCode);
+    console.log("🚀 ~ newCode:", newCode, area);
+    const result=getAreaFullPath(flatAreaList,newCode)
+    console.log("🚀 ~ result:", result)
+    getAreaCode.value =result;
+  },
+  { immediate: true }
+);
 
 const handleChangeCode = (value) => {
   const code = value[value.length - 1];

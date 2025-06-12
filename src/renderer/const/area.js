@@ -1,0 +1,1 @@
+export const ROOT_CODE = '100000'

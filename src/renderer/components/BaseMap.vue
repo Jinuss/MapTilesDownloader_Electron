@@ -1,12 +1,17 @@
 <script setup>
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
+import "leaflet-draw/dist/leaflet.draw.css"
 import "leaflet-draw";
 import { BASE_MAP_TILES_URL } from "@/const";
 import { useMapStore } from "@/stores";
 import axios from "axios";
 import { storeToRefs } from "pinia";
+import { areaList } from "@/lib/areaCode";
+import { flattenTree } from "@/util/index";
+import BackIcon from '@/components/BackIcon.vue'
 
+const flatAreaList = flattenTree(areaList);
 const mapStore = useMapStore();
 
 const { areaCode } = storeToRefs(mapStore);
@@ -18,18 +23,22 @@ let map = null,
 watch(
   () => mapStore.areaCode,
   (newCode, oldCode) => {
-    console.log("🚀 ~ newCode, oldCode:", newCode, oldCode);
     if (map) {
       getGeoJSON();
     }
   }
 );
+
 const getGeoJSON = async () => {
   if (!areaCode.value) return;
+  let code = `${areaCode.value}`;
+  let area = flatAreaList.find((item) => item.code == areaCode.value);
+  if (area && area.level < 6) {
+    code = `${areaCode.value}_full`;
+  }
   const { data: geojsonData } = await axios.get(
-    `https://geo.datav.aliyun.com/areas_v3/bound/geojson?code=${areaCode.value}`
+    `https://geo.datav.aliyun.com/areas_v3/bound/geojson?code=${code}`
   );
-  console.log("🚀 ~ getGeoJSON ~ resp:", geojsonData);
 
   if (!geoJsonLayer) {
     geoJsonLayer = L.geoJSON(geojsonData, {
@@ -45,23 +54,35 @@ const getGeoJSON = async () => {
         });
       },
       style: (feature) => ({
-        color: "#3388ff", // 线和多边形的边框颜色
+        color: "#ff7800", // 线和多边形的边框颜色
         weight: 2, // 线宽
-        opacity: 0.2,
+        dashArray: "10", // 虚线样式
+        fillColor: "#38f", // 多边形填充颜色
+        fillOpacity: 0.2, // 多边形填充透明度
+        opacity: 1,
       }),
       onEachFeature: (feature, layer) => {
         // 添加弹出窗口
         if (feature.properties && feature.properties.name) {
-          const popupContent = `<b>${feature.properties.name}</b>`;
-          if (feature.properties.population) {
-            popupContent += `<br>人口: ${feature.properties.population.toLocaleString()}`;
-          }
-          layer.bindPopup(popupContent);
-
           // 鼠标悬停效果
           layer.on({
-            mouseover: (e) => layer.setStyle({ fillColor: "red" }),
-            mouseout: (e) => geoJsonLayer.resetStyle(layer),
+            mouseover: (e) => {
+              layer.setStyle({ fillColor: "green" });
+              layer.bringToFront();
+              if (HoverInfo) {
+                HoverInfo.update(feature.properties);
+              }
+            },
+            mouseout: (e) => {
+              geoJsonLayer.resetStyle(layer);
+              HoverInfo.update();
+            },
+            click: (e) => {
+              map.fitBounds(layer.getBounds());
+              if (areaCode.value !== feature.properties.adcode) {
+                mapStore.$patch({ areaCode: feature.properties.adcode });
+              }
+            },
           });
         }
       },
@@ -119,18 +140,40 @@ const initDrawControl = () => {
     }
   });
 };
+
+let HoverInfo = null;
+const initMouseHover = () => {
+  HoverInfo = L.control({ position: "topright" });
+  HoverInfo.onAdd = function (map) {
+    this._div = L.DomUtil.create("div", "info"); // 创建一个div元素
+    this.update(); // 初始化
+    return this._div;
+  };
+
+  HoverInfo.update = function (props) {
+    if (props) {
+      this._div.innerHTML = `<h4>地名：${props.name}</h4><h4>adcode：${props.adcode}</h4>`;
+    } else {
+      this._div.innerHTML = `<h4>鼠标移入地图试试✌</h4>`;
+    }
+  };
+  HoverInfo.addTo(map);
+};
 onMounted(() => {
   map = L.map(mapRef.value).setView([39.9, 116.4], 10);
   L.control.scale({ imperial: false }).addTo(map);
   L.tileLayer(BASE_MAP_TILES_URL[0], {}).addTo(map);
   mapStore.$patch({ map });
   getGeoJSON();
-  initDrawControl()
+  initDrawControl();
+  initMouseHover();
 });
 </script>
 
 <template>
-  <div class="map_container" ref="mapRef"></div>
+  <div class="map_container" ref="mapRef">
+    <BackIcon />
+  </div>
 </template>
 <style scoped>
 .map_container {
