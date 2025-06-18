@@ -2,6 +2,10 @@
     "cSpell.words": [
         "adcode",
         "axios",
-        "circlemarker"
-    ]
+        "circlemarker",
+        "overlayadd",
+        "overlayremove",
+        "tianditu"
+    ],
+    "liveServer.settings.port": 5501
 }

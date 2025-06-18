@@ -4,7 +4,9 @@ import BaseMap from "./components/BaseMap.vue";
 </script>
 <template>
   <div class="container">
-    <BaseMap />
+    <div class="container_left">
+      <BaseMap />
+    </div>
     <Panel />
   </div>
 </template>
@@ -13,5 +15,9 @@ import BaseMap from "./components/BaseMap.vue";
   display: flex;
   flex-direction: row;
   height: 100vh;
+}
+.container_left {
+  width: calc(100% - 400px);
+  position: relative;
 }
 </style>

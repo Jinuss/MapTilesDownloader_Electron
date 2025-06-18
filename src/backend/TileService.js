@@ -13,7 +13,7 @@ class TileService extends EventEmitter {
 
     // 确保存储目录存在
     fs.ensureDirSync(this.storageDir);
-    console.log(`瓦片存储目录: ${this.storageDir}`);
+    console.log(`瓦片默认存储目录: ${this.storageDir}`);
 
     this.workerPool = {};
     this.downloadQueue = [];
@@ -312,7 +312,9 @@ class TileService extends EventEmitter {
         workerId,
         tiles: job.tiles,
         storageDir: this.storageDir,
-        urlTemplate: job.options.urlTemplate
+        urlTemplate: job.options.urlTemplate,
+        subdomains: job.options.subdomains,
+        storagePath: job.options.storagePath
       });
     } catch (error) {
       console.error(`给工作线程 ${workerId} 分配任务失败:`, error);
@@ -329,36 +331,9 @@ class TileService extends EventEmitter {
   }
 
   // 计算瓦片请求
-  calculateTileRequests(bounds, currentZoom) {
-    const requests = [];
-    const zoomRange = [
-      Math.max(0, currentZoom - 2),
-      Math.min(18, currentZoom + 2),
-    ];
-
-    for (let z = zoomRange[0]; z <= zoomRange[1]; z++) {
-      const topLeft = map.project(bounds.getNorthWest(), z);
-      const bottomRight = map.project(bounds.getSouthEast(), z);
-
-      const minX = Math.floor(topLeft.x / 256);
-      const maxX = Math.floor(bottomRight.x / 256);
-      const minY = Math.floor(topLeft.y / 256);
-      const maxY = Math.floor(bottomRight.y / 256);
-
-      for (let x = minX; x <= maxX; x++) {
-        for (let y = minY; y <= maxY; y++) {
-          requests.push({ z, x, y });
-        }
-      }
-    }
-
-    return requests;
-  }
   calculateTiles(options) {
-    console.log("🚀 ~ TileService ~ calculateTiles ~ options:", options)
+    // console.log("🚀 ~ TileService ~ calculateTiles ~ options:", options)
     const { bounds, minZoom, maxZoom } = options;
-
-
     const [south, west, north, east] = bounds;
 
     // 确保在有效范围内

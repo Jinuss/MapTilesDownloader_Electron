@@ -1,4 +1,4 @@
-import { ROOT_CODE } from '@/const/index'
+import { ROOT_CODE, TDT_LAYERS, BASE_MAP_TILES_URL, TDT_TOKEN } from '@/const/index'
 
 export function flattenTree(tree, childrenKey = 'children') {
     const result = [];
@@ -45,4 +45,16 @@ export const getAreaFullPath = (list, code) => {
     result.unshift(ROOT_CODE)
 
     return result;
+}
+
+export const getLayerByName = (name) => {
+    return [...BASE_MAP_TILES_URL, ...TDT_LAYERS].find(item => item.layerName === name)
+}
+
+export const getWrappedUrlByLayerType = (url,layerType) => {
+    if (layerType == 'tdt') {
+        url = `http://t{s}.tianditu.gov.cn/DataServer?T=${url}&x={x}&y={y}&l={z}&tk=${TDT_TOKEN}`
+        return { urlTemplate: url, subdomains: "01234567" };
+    }
+    return { urlTemplate: url, subdomains: "abc" };
 }

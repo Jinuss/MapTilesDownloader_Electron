@@ -16,3 +16,21 @@
   margin: 0 0 5px;
   color: #777;
 }
+
+.resetControl {
+  background-color: white;
+  border-radius: 4px;
+  border: 2px solid rgba(0, 0, 0, 0.2);
+  width: 30px;
+  height: 30px;
+  line-height: 30px;
+  text-align: center;
+  color: black;
+  font-size: 16px;
+  cursor: pointer;
+}
+
+/*覆盖leaflet默认样式*/
+.leaflet-right {
+    right: 20px !important; 
+}

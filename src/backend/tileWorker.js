@@ -28,37 +28,37 @@ async function fileExists(filePath) {
   if (fileCache.has(filePath)) {
     return fileCache.get(filePath);
   }
-  
+
   const exists = await fs.pathExists(filePath);
   fileCache.set(filePath, exists);
   return exists;
 }
 
 // 生成瓦片URL
-function generateTileUrl(template, z, x, y) {
+function generateTileUrl(template, domains, z, x, y) {
   let url = template;
-  
+
   // 处理子域轮询
   if (template.includes('{s}')) {
-    const subdomains = ['a', 'b', 'c'];
+    const subdomains = domains ? domains.split('') : ['a', 'b', 'c'];
     const subdomain = subdomains[Math.floor(Math.random() * subdomains.length)];
     url = url.replace('{s}', subdomain);
   }
-  
+
   // 替换变量
   url = url
     .replace(/\{z\}/g, z)
     .replace(/\{x\}/g, x)
     .replace(/\{y\}/g, y)
     .replace(/\{-y\}/g, (Math.pow(2, z) - 1 - y));
-    
+
   return url;
 }
 
 // 下载瓦片
 async function downloadTile(url, maxRetries = 3, retryDelay = 1000) {
   let retries = 0;
-  
+
   while (retries < maxRetries) {
     try {
       const response = await axios.get(url, {
@@ -69,7 +69,7 @@ async function downloadTile(url, maxRetries = 3, retryDelay = 1000) {
           'Accept-Encoding': 'gzip, deflate'
         }
       });
-      
+
       return {
         status: 'success',
         buffer: response.data
@@ -79,15 +79,15 @@ async function downloadTile(url, maxRetries = 3, retryDelay = 1000) {
         log(`瓦片不存在: ${url}`, 'warn');
         return { status: 'not_found' };
       }
-      
+
       retries++;
       if (retries < maxRetries) {
         log(`下载失败 (${url}), 重试 ${retries}/${maxRetries}: ${error.message}`, 'warn');
         await new Promise(resolve => setTimeout(resolve, retryDelay * retries));
       } else {
         log(`下载失败 (${url}) 达到最大重试次数: ${error.message}`, 'error');
-        return { 
-          status: 'error', 
+        return {
+          status: 'error',
           error: `下载失败: ${error.message}`
         };
       }
@@ -101,28 +101,44 @@ async function saveTile(filePath, buffer) {
     await fs.ensureDir(path.dirname(filePath));
     await fs.writeFile(filePath, buffer);
     fileCache.set(filePath, true);
-    
+
     return true;
   } catch (error) {
     log(`保存瓦片失败: ${filePath}: ${error.message}`, 'error');
     return false;
   }
 }
+function formatMilliseconds(ms) {
+  // 计算各个时间单位
+  const seconds = Math.floor(ms / 1000);
+  const minutes = Math.floor(seconds / 60);
+  const hours = Math.floor(minutes / 60);
 
+  // 获取剩余时间
+  const remainingSeconds = seconds % 60;
+  const remainingMinutes = minutes % 60;
+
+  // 格式化为两位数
+  const formattedHours = hours.toString().padStart(2, '0');
+  const formattedMinutes = remainingMinutes.toString().padStart(2, '0');
+  const formattedSeconds = remainingSeconds.toString().padStart(2, '0');
+
+  return `${formattedHours}h${formattedMinutes}m${formattedSeconds}s`;
+}
 // 消息处理
 parentPort.on('message', async (msg) => {
   if (msg.type !== 'start-download') return;
-  
-  const { jobId, tiles = [], urlTemplate } = msg;
+
+  const { jobId, tiles = [], urlTemplate, subdomains, storagePath } = msg;
   const startTime = Date.now();
   const totalTiles = tiles.length;
-  
+
   log(`开始任务 ${jobId}: ${totalTiles} 个瓦片`, 'info');
-  
+
   let downloadedCount = 0;
   let skippedCount = 0;
   let errorCount = 0;
-  
+
   try {
     // 报告任务开始
     parentPort.postMessage({
@@ -134,15 +150,16 @@ parentPort.on('message', async (msg) => {
       downloaded: 0,
       errors: 0
     });
-    
+
     for (let i = 0; i < totalTiles; i++) {
       const tile = tiles[i];
       const { z, x, y } = tile;
-      
+
       // 生成瓦片路径
-      const tileDir = path.join(storageDir, `${z}/${x}`);
+      const lastPath = storagePath || storageDir;
+      const tileDir = path.join(lastPath, `${z}/${x}`);
       const tilePath = path.join(tileDir, `${y}.png`);
-      
+
       // 报告进度
       if (i % 10 === 0 || i === totalTiles - 1) {
         parentPort.postMessage({
@@ -158,19 +175,19 @@ parentPort.on('message', async (msg) => {
           errors: errorCount
         });
       }
-      
+
       // 检查瓦片是否已存在
       if (await fileExists(tilePath)) {
         skippedCount++;
         continue;
       }
-      
+
       // 生成URL
-      const tileUrl = generateTileUrl(urlTemplate, z, x, y);
-      
+      const tileUrl = generateTileUrl(urlTemplate, subdomains, z, x, y);
+
       // 下载瓦片
       const result = await downloadTile(tileUrl);
-      
+
       if (result.status === 'success') {
         // 保存瓦片
         const saveResult = await saveTile(tilePath, result.buffer);
@@ -184,16 +201,16 @@ parentPort.on('message', async (msg) => {
       } else {
         errorCount++;
       }
-      
+
       // 避免内存溢出
       if (i % 100 === 0) {
         await new Promise(resolve => setTimeout(resolve, 1));
       }
     }
-    
+
     // 任务完成
     log(`任务 ${jobId} 完成: ${downloadedCount} 下载, ${skippedCount} 跳过, ${errorCount} 失败`, 'info');
-    
+
     parentPort.postMessage({
       type: 'completed',
       jobId,
@@ -204,12 +221,12 @@ parentPort.on('message', async (msg) => {
       errorCount,
       startTime,
       endTime: Date.now(),
-      duration: Date.now() - startTime
+      duration: formatMilliseconds(Date.now() - startTime)
     });
   } catch (error) {
     // 任务失败
     log(`任务 ${jobId} 失败: ${error.message}`, 'error');
-    
+
     parentPort.postMessage({
       type: 'error',
       jobId,

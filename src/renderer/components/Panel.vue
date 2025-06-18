@@ -5,19 +5,20 @@ import { areaList } from "@/lib/areaCode";
 import { useMapStore } from "@/stores";
 import { BASE_MAP_TILES_URL } from "@/const";
 import { storeToRefs } from "pinia";
-import { flattenTree,getAreaFullPath } from "@/util/index";
+import {
+  flattenTree,
+  getAreaFullPath,
+  getLayerByName,
+  getWrappedUrlByLayerType,
+} from "@/util/index";
+import { ElMessage } from "element-plus";
 
 const flatAreaList = flattenTree(areaList);
 
 const mapStore = useMapStore();
-const { areaCode } = storeToRefs(mapStore);
-const zoom = ref([6, 12]);
-const rangType = ref("1");
-let rectangle = null;
+const { areaCode, geoJson } = storeToRefs(mapStore);
 
-const minZoom = ref(5);
-const maxZoom = ref(10);
-const urlTemplate = ref(BASE_MAP_TILES_URL[0]);
+const zoom = ref([1, 10]);
 const isDownloading = ref(false);
 const activeJob = ref(null);
 
@@ -31,42 +32,39 @@ const progressMax = ref(100);
 
 onMounted(() => {
   // 设置事件监听
-  if (window.electronAPI) {
-    window.electronAPI.onTileProgress(handleTileProgress);
-    window.electronAPI.onJobCreated(handleJobCreated);
-    window.electronAPI.onJobUpdate(handleJobUpdate);
-  }
+  window.electronAPI?.onTileProgress(handleTileProgress);
+  //监听任务创建
+  window.electronAPI?.onJobCreated((job) => {
+    activeJob.value = job;
+  });
+  window.electronAPI?.onJobUpdate(handleJobUpdate);
 });
 
-function selectArea() {
-  // 清除之前的选区
-  if (rectangle) {
-    map.removeLayer(rectangle);
-  }
-
-  // 开始绘制矩形
-  rectangle = L.rectangle(
-    [
-      [40.0, 115.0],
-      [39.5, 116.5],
-    ],
-    {
-      color: "#ff7800",
-      weight: 1,
-      fillOpacity: 0.05,
-    }
-  ).addTo(map);
-
-  map.fitBounds(rectangle.getBounds());
-}
-
 async function downloadTiles() {
-  if (!rectangle) {
-    alert("请先选择区域");
+  if (!geoJson.value) {
+    ElMessage.error("请先选择区域");
+    return;
+  }
+  const visibleLayers = mapStore.visibleLayerName;
+  if (!visibleLayers.length) {
+    ElMessage.error("请先选择图层");
+    return;
+  }
+  if (visibleLayers.length > 1) {
+    ElMessage.error("一次只能下载一种类型的底图");
+    return;
+  }
+  if (!storagePath.value) {
+    ElMessage.error("请先选择存储目录");
     return;
   }
 
-  const bounds = rectangle.getBounds();
+  const layer = getLayerByName(visibleLayers[0]);
+  const { urlTemplate, subdomains } = getWrappedUrlByLayerType(
+    layer.url,
+    layer.type
+  );
+  const bounds = L.geoJSON(geoJson.value).getBounds();
   isDownloading.value = true;
 
   try {
@@ -77,10 +75,13 @@ async function downloadTiles() {
         bounds.getNorthEast().lat,
         bounds.getNorthEast().lng,
       ],
-      minZoom: minZoom.value,
-      maxZoom: maxZoom.value,
-      urlTemplate: urlTemplate.value,
+      minZoom: zoom.value[0],
+      maxZoom: zoom.value[1],
+      urlTemplate: urlTemplate,
+      subdomains,
+      storagePath: storagePath.value,
     });
+
     console.log("🚀 ~ downloadTiles ~ job:", job);
 
     activeJob.value = {
@@ -105,30 +106,10 @@ async function downloadTiles() {
 }
 
 function handleTileProgress(data) {
-  if (!activeJob.value || activeJob.value.id !== data.jobId) return;
-
-  completedTiles.value++;
-
-  switch (data.status) {
-    case "completed":
-      successCount.value++;
-      break;
-    case "failed":
-      failCount.value++;
-      break;
-    case "exists":
-      skipCount.value++;
-      break;
-  }
+  console.log("🚀 ~ handleTileProgress ~ data:", data);
 
   // 更新进度条
   progressValue.value = completedTiles.value;
-}
-
-function handleJobCreated(job) {
-  if (job.id === activeJob.value?.id) {
-    activeJob.value = job;
-  }
 }
 
 function handleJobUpdate(update) {
@@ -151,18 +132,14 @@ const getAreaCode = ref([]);
 watch(
   () => areaCode.value,
   (newCode, oldCode) => {
-    const area = flatAreaList.find((item) => item.code == newCode);
-    console.log("🚀 ~ newCode:", newCode, area);
-    const result=getAreaFullPath(flatAreaList,newCode)
-    console.log("🚀 ~ result:", result)
-    getAreaCode.value =result;
+    const result = getAreaFullPath(flatAreaList, newCode);
+    getAreaCode.value = result;
   },
   { immediate: true }
 );
 
 const handleChangeCode = (value) => {
   const code = value[value.length - 1];
-  console.log("🚀 ~ handleChangeCode ~ value:", value, code);
 
   mapStore.$patch({
     areaCode: code,
@@ -170,37 +147,27 @@ const handleChangeCode = (value) => {
 
   areaRef.value?.togglePopperVisible();
 };
+const marks = ref({
+  1: "Min",
+  10: "10",
+  20: "Max",
+});
+
+const storagePath = ref("");
+const openFolder = async () => {
+  const path = await window.electronAPI.selectFolder();
+  if (path) {
+    storagePath.value = path;
+  }
+};
 </script>
 <template>
   <div class="controls">
     <div class="form-item">
-      <label for="">缩放级别</label>
-      <el-slider v-model="zoom" range show-stops :max="20" :min="0" />
-    </div>
-
-    <div class="form-item">
-      <label>瓦片URL模板</label>
-      <el-select v-model="urlTemplate" placeholder="请选择瓦片模版">
-        <el-option
-          v-for="item in BASE_MAP_TILES_URL"
-          :key="item"
-          :label="item"
-          :value="item"
-        >
-        </el-option>
-      </el-select>
-    </div>
-
-    <div class="form-item">
-      <label for="">选择区域方式</label>
-      <el-radio-group v-model="rangType">
-        <el-radio value="1">行政区划</el-radio>
-        <el-radio value="2">绘制</el-radio>
-      </el-radio-group>
-    </div>
-
-    <div class="form-item">
-      <label for="">选择行政区划</label>
+      <div class="form-item-header">
+        <div class="step-number">1</div>
+        <label for="">行政区划</label>
+      </div>
       <el-cascader
         ref="areaRef"
         v-model="getAreaCode"
@@ -210,38 +177,96 @@ const handleChangeCode = (value) => {
         placeholder="请选择行政区划"
       />
     </div>
-    <button @click="selectArea">选择区域</button>
+    <div class="form-item">
+      <div class="form-item-header">
+        <div class="step-number">2</div>
+        <label for="">{{ `缩放级别（${zoom[0]} ~ ${zoom[1]}）` }}</label>
+      </div>
+      <el-slider
+        v-model="zoom"
+        range
+        show-stops
+        :max="20"
+        :min="1"
+        :marks="marks"
+      />
+    </div>
 
-    <button @click="downloadTiles" :disabled="isDownloading">开始下载</button>
+    <div class="form-item">
+      <div class="form-item-header">
+        <div class="step-number">3</div>
+        <label for="">瓦片存储目录</label>
+      </div>
+      <el-button id="selectBtn" @click="openFolder">{{
+        storagePath || "选择目录"
+      }}</el-button>
+    </div>
+    <el-button @click="downloadTiles" :disabled="isDownloading"
+      >开始下载</el-button
+    >
 
     <div v-if="activeJob" class="job-status">
       <h3>下载状态: {{ activeJob.status }}</h3>
-      <progress :value="progressValue" :max="progressMax"></progress>
-      <div class="stats">
-        <span>完成: {{ completedTiles }} / {{ totalTiles }}</span>
-        <span>成功: {{ successCount }}</span>
-        <span>失败: {{ failCount }}</span>
-        <span>跳过: {{ skipCount }}</span>
-      </div>
+      <el-progress
+        type="circle"
+        :percentage="
+          activeJob.tileCount
+            ? (activeJob.downloaded * 100) / activeJob.tileCount
+            : 100
+        "
+      />
     </div>
   </div>
 </template>
 <style scoped>
 .controls {
-  width: 400px;
-  padding: 15px;
-  background: #fff;
+  width: 380px;
+  position: absolute;
+  right: 0;
+  top: 0;
+  padding: 20px 20px 20px 30px;
+  height: calc(100% - 40px);
+  overflow-x: visible;
+  overflow-y: auto;
 }
 
+.step-number {
+  font-weight: 600;
+  font-size: 20px;
+  background: #322631;
+  width: 35px;
+  height: 35px;
+  text-align: center;
+  border-radius: 50%;
+  color: white;
+  position: relative;
+  left: -20px;
+  z-index: 1000;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
 .el-slider {
   margin-top: 0;
-  margin-left: 12px;
+}
+
+label {
+  margin-bottom: 4px;
+  font-weight: 500;
+  font-size: 20px;
 }
 
 .form-item {
-  margin-bottom: 15px;
+  margin-left: 20px;
+  margin-bottom: 25px;
   display: flex;
   flex-direction: column;
+}
+
+.form-item-header {
+  margin-left: -20px;
+  display: flex;
+  align-items: center;
 }
 .job-status {
   margin-top: 20px;
