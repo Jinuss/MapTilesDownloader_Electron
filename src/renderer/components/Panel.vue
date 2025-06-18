@@ -20,24 +20,38 @@ const { areaCode, geoJson } = storeToRefs(mapStore);
 
 const zoom = ref([1, 10]);
 const isDownloading = ref(false);
-const activeJob = ref(null);
 
-// 进度统计
-const completedTiles = ref(0);
-const successCount = ref(0);
-const failCount = ref(0);
-const skipCount = ref(0);
-const progressValue = ref(0);
-const progressMax = ref(100);
+// 瓦片任务：总任务
+const tileTask = ref({
+  total: 0,
+  tiles: [],
+  jobId: null,
+  status: "",
+});
+
+const workerTasks = ref({});
+
+const activeJob = ref({});
 
 onMounted(() => {
-  // 设置事件监听
-  window.electronAPI?.onTileProgress(handleTileProgress);
-  //监听任务创建
-  window.electronAPI?.onJobCreated((job) => {
-    activeJob.value = job;
+  // 监听线程任务分配
+  window.electronAPI?.onWorkerTaskAssigned((data) => {
+    console.log("🚀 ~ window.electronAPI?.onWorkerTaskAssigned ~ data:", data);
+    const { workerId } = data;
+    workerTasks.value = {
+      ...workerTasks.value,
+      [workerId]: { ...data, name: `子任务${workerId + 1}` },
+    };
   });
-  window.electronAPI?.onJobUpdate(handleJobUpdate);
+  // 监听线程任务进度
+  window.electronAPI?.onWorkerTaskProgress((data) => {
+    console.log("🚀 ~ window.electronAPI?.onWorkerTaskProgress ~ data:", data);
+    const { workerId } = data;
+    workerTasks.value = {
+      ...workerTasks.value,
+      [workerId]: { ...workerTasks.value[workerId], ...data },
+    };
+  });
 });
 
 async function downloadTiles() {
@@ -68,7 +82,7 @@ async function downloadTiles() {
   isDownloading.value = true;
 
   try {
-    const job = await window.electronAPI.downloadArea({
+    const { success, result } = await window.electronAPI.downloadArea({
       bounds: [
         bounds.getSouthWest().lat,
         bounds.getSouthWest().lng,
@@ -82,40 +96,16 @@ async function downloadTiles() {
       storagePath: storagePath.value,
     });
 
-    console.log("🚀 ~ downloadTiles ~ job:", job);
+    console.log("🚀 ~ downloadTiles ~ job:", result);
 
-    activeJob.value = {
-      id: job.id,
-      status: "queued",
-      tiles: job.tiles,
-    };
-
-    // 重置计数器
-    completedTiles.value = 0;
-    successCount.value = 0;
-    failCount.value = 0;
-    skipCount.value = 0;
-    progressMax.value = job.tiles?.length;
-    progressValue.value = 0;
+    if (success) {
+      tileTask.value = result;
+    }
   } catch (error) {
     console.error("启动下载失败:", error);
     alert(`下载失败: ${error.message}`);
   } finally {
     isDownloading.value = false;
-  }
-}
-
-function handleTileProgress(data) {
-  console.log("🚀 ~ handleTileProgress ~ data:", data);
-
-  // 更新进度条
-  progressValue.value = completedTiles.value;
-}
-
-function handleJobUpdate(update) {
-  if (update.jobId === activeJob.value?.id) {
-    activeJob.value.status = update.status;
-    // 可以添加更详细的更新处理
   }
 }
 
@@ -180,7 +170,7 @@ const openFolder = async () => {
     <div class="form-item">
       <div class="form-item-header">
         <div class="step-number">2</div>
-        <label for="">{{ `缩放级别（${zoom[0]} ~ ${zoom[1]}）` }}</label>
+        <label for="">{{ `缩放级别（${zoom[0]} ~ ${zoom[1]})` }}</label>
       </div>
       <el-slider
         v-model="zoom"
@@ -197,28 +187,57 @@ const openFolder = async () => {
         <div class="step-number">3</div>
         <label for="">瓦片存储目录</label>
       </div>
-      <el-button id="selectBtn" @click="openFolder">{{
-        storagePath || "选择目录"
-      }}</el-button>
+      <div>
+        <el-button id="selectBtn" @click="openFolder">选择目录</el-button>
+        <p class="path">{{ storagePath }}</p>
+      </div>
     </div>
-    <el-button @click="downloadTiles" :disabled="isDownloading"
-      >开始下载</el-button
-    >
-
-    <div v-if="activeJob" class="job-status">
-      <h3>下载状态: {{ activeJob.status }}</h3>
-      <el-progress
-        type="circle"
-        :percentage="
-          activeJob.tileCount
-            ? (activeJob.downloaded * 100) / activeJob.tileCount
-            : 100
-        "
-      />
+    <div class="form-item">
+      <el-button type="primary" @click="downloadTiles" :disabled="isDownloading"
+        >开始下载</el-button
+      >
+    </div>
+    <div class="job-status">
+      <h3>状态: {{ tileTask.status }}</h3>
+      <div>
+        <p>总计：{{ tileTask.total }}</p>
+        <p>已下载：{{ activeJob.downloaded }}</p>
+      </div>
+      <div class="progress-ring">
+        <el-progress
+          type="circle"
+          :percentage="
+            activeJob.total
+              ? Math.floor((activeJob.downloaded * 100) / activeJob.total)
+              : 100
+          "
+        />
+      </div>
+      <div>
+        <div class="worker-task" v-for="task in workerTasks">
+          <p>{{ task?.name }} {{ task?.completed }}/{{ task?.chunkSize }}</p>
+          <el-progress
+            :percentage="Math.floor((task?.completed * 100) / task?.chunkSize)"
+          ></el-progress>
+        </div>
+      </div>
     </div>
   </div>
 </template>
 <style scoped>
+.progress-ring {
+  display: flex;
+  justify-content: center;
+  align-content: center;
+  align-items: center;
+}
+.path {
+  border-bottom: 1px solid #ccc;
+  margin: 6px 2px;
+  white-space: nowrap; /* 文本不换行 */
+  overflow: hidden; /* 隐藏溢出内容 */
+  text-overflow: ellipsis; /* 显示省略号 */
+}
 .controls {
   width: 380px;
   position: absolute;

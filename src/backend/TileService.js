@@ -3,6 +3,7 @@ const fs = require('fs-extra');
 const { Worker } = require('worker_threads');
 const EventEmitter = require('events');
 const os = require('os');
+const { calculateTiles } = require('./Utils.js');
 
 class TileService extends EventEmitter {
   constructor(userDataPath) {
@@ -16,12 +17,10 @@ class TileService extends EventEmitter {
     console.log(`瓦片默认存储目录: ${this.storageDir}`);
 
     this.workerPool = {};
-    this.downloadQueue = [];
     this.activeDownloads = 0;
     this.maxConcurrency = os.cpus().length; // 根据CPU核心数设置并发数
 
-    // 解决序列化问题 - 存储Promise回调
-    this.promiseCallbacks = new Map(); // Map<jobId, {resolve, reject}>
+    this.activeJobs = new Map();
 
     // 创建 worker 源文件路径
     this.workerScriptPath = path.join(__dirname, 'tileWorker.js');
@@ -73,63 +72,52 @@ class TileService extends EventEmitter {
     try {
       if (msg.type === 'progress') {
         // 转发进度更新
-        this.emit('progress', {
+        this.emit('chunk-progress', {
           ...msg,
           workerId
         });
-      }
+      } else if (msg.type === 'chunk-completed') {
+        const { jobId, chunkDownloaded, chunkErrors, chunkStartIndex } = msg;
 
-      if (msg.type === 'completed') {
+        // 更新工作线程状态
         this.workerPool[workerId].busy = false;
         this.workerPool[workerId].lastActivity = Date.now();
-        const jobId = this.workerPool[workerId].currentJobId;
         this.workerPool[workerId].currentJobId = null;
 
-        // 处理任务完成回调
-        if (this.promiseCallbacks.has(jobId)) {
-          const { resolve } = this.promiseCallbacks.get(jobId);
-          this.promiseCallbacks.delete(jobId);
-
-          // 发送完成通知
-          this.emit('job-completed', {
-            jobId,
-            duration: Date.now() - msg.startTime,
-            downloadedCount: msg.downloadedCount,
-            skippedCount: msg.skippedCount,
-            errorCount: msg.errorCount
-          });
-
-          // 解析Promise
-          resolve({
-            jobId,
-            ...msg
-          });
+        // 查找对应的作业
+        const jobInfo = this.findJob(jobId);
+        if (!jobInfo) {
+          console.warn(`收到未知作业的完成消息: ${jobId}`);
+          return;
         }
 
-        this.processQueue();
-      }
+        // 更新作业状态
+        jobInfo.downloaded += chunkDownloaded;
+        jobInfo.errors += chunkErrors;
+        jobInfo.tasksCompleted++;
 
-      if (msg.type === 'error') {
-        const jobId = this.workerPool[workerId].currentJobId;
-        this.workerPool[workerId].busy = false;
-        this.workerPool[workerId].currentJobId = null;
+        // 计算作业整体进度
+        jobInfo.progress = Math.min(
+          100,
+          Math.round((jobInfo.downloaded / jobInfo.total) * 100)
+        );
 
-        // 处理任务失败回调
-        if (this.promiseCallbacks.has(jobId)) {
-          const { reject } = this.promiseCallbacks.get(jobId);
-          this.promiseCallbacks.delete(jobId);
+        // 任务完成事件
+        this.emit('task-completed', {
+          jobId,
+          workerId,
+          chunkDownloaded,
+          chunkErrors,
+          chunkStartIndex
+        });
 
-          // 发送失败通知
-          this.emit('job-failed', {
-            jobId,
-            error: msg.error
-          });
-
-          // 拒绝Promise
-          reject(new Error(msg.error));
+        // 作业完成事件
+        if (jobInfo.tasksCompleted >= jobInfo.tasksAssigned) {
+          this.handleJobCompletion(jobInfo);
+        } else {
+          // 继续分配剩余瓦片
+          this.assignTilesToWorker(jobInfo);
         }
-
-        this.processQueue();
       }
     } catch (error) {
       console.error(`处理工作线程 ${workerId} 消息失败:`, error);
@@ -140,6 +128,27 @@ class TileService extends EventEmitter {
         rawMessage: msg
       });
     }
+  }
+
+  findJob(jobId) {
+    return this.activeJobs.get(jobId);
+  }
+  /**
+  * 处理作业完成
+  */
+  handleJobCompletion(jobInfo) {
+    // 标记作业状态为完成
+    jobInfo.status = 'completed';
+    jobInfo.endTime = Date.now();
+    jobInfo.duration = jobInfo.endTime - jobInfo.startTime;
+
+    // 作业完成事件
+    this.emit('job-completed', {
+      jobId: jobInfo.jobId,
+      downloaded: jobInfo.downloaded,
+      errors: jobInfo.errors,
+      duration: jobInfo.duration
+    });
   }
 
   handleWorkerError(err, workerId) {
@@ -205,7 +214,7 @@ class TileService extends EventEmitter {
       if (this.workerPool[workerId].currentJobId) {
         this.recoverJob(workerId, this.workerPool[workerId].currentJobId);
       } else {
-        this.processQueue();
+        // this.processQueue();
       }
     } catch (error) {
       console.error(`重启工作线程 ${workerId} 失败:`, error);
@@ -217,178 +226,147 @@ class TileService extends EventEmitter {
     }
   }
 
-  downloadArea(options) {
+  // 创建下载任务
+  createDownloadJob(options) {
     return new Promise((resolve, reject) => {
       try {
         const jobId = `job-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
 
         // 计算瓦片
-        const tiles = this.calculateTiles(options);
+        const tiles = calculateTiles(options);
 
         const jobInfo = {
           jobId,
           options,
-          status: 'queued',
+          status: '完成瓦片计算',
           tiles,
-          tileCount: tiles.length,
+          total: tiles.length,
           startTime: Date.now(),
           progress: 0,
           downloaded: 0,
-          errors: 0
+          errors: 0,
+
+          tasksAssigned: 0,        // 已分配的任务数
+          tasksCompleted: 0,        // 已完成的任务数
+          allocatedTiles: 0,        // 已分配的瓦片数
+          perWorkerChunkSize: 0     // 每个工作线程分配的子集大小
         };
 
-        // 存储Promise回调以备后用
-        this.promiseCallbacks.set(jobId, { resolve, reject });
-
-        this.emit('job-created', jobInfo);
-
-        this.downloadQueue.push(jobInfo);
-        this.processQueue();
+        resolve({ jobId: jobInfo.jobId, total: jobInfo.total, tiles: jobInfo.tiles, status: jobInfo.status })
+        // 计算每个工作线程的瓦片分配大小
+        this.calculateJobDistribution(jobInfo)
+        this.activeJobs.set(jobId, jobInfo)
+        this.processJob(jobInfo)
       } catch (error) {
         reject(error);
       }
     });
   }
 
-  processQueue() {
-    try {
-      while (this.downloadQueue.length > 0 && this.hasAvailableWorker()) {
-        const workerId = this.getAvailableWorkerId();
-        if (workerId === null) break;
+  // 计算作业如何分配到各工作线程
+  calculateJobDistribution(jobInfo) {
+    // 计算每个工作线程应处理的瓦片数
+    // 确保每个线程至少处理1个瓦片
+    jobInfo.perWorkerChunkSize = Math.max(1, Math.ceil(jobInfo.total / this.maxConcurrency));
 
-        const job = this.downloadQueue.shift();
-        this.assignToWorker(job, workerId);
-      }
+    // 重置状态计数
+    jobInfo.tasksAssigned = 0;
+    jobInfo.tasksCompleted = 0;
+    jobInfo.allocatedTiles = 0;
 
-      // 更新队列状态
-      const queueInfo = {
-        active: Object.values(this.workerPool).filter(w => w.busy).length,
-        queued: this.downloadQueue.length,
-        workers: this.maxConcurrency
-      };
+    console.log(`[${jobInfo.jobId}] 作业分配: ${this.maxConcurrency} 工作线程, 每线程处理 ${jobInfo.perWorkerChunkSize} 瓦片`);
+  }
 
-      this.emit('queue-update', queueInfo);
-    } catch (error) {
-      console.error('处理队列失败:', error);
-      this.emit('error', {
-        type: 'queue',
-        error: error.message
-      });
+  // 处理单个作业-分发给多个工作线程
+  processJob(jobInfo) {
+    // 更新作业状态
+    jobInfo.status = '分发任务';
+    this.emit('job-update', {
+      jobId: jobInfo.jobId,
+      status: jobInfo.status
+    });
+
+    // 尽可能分配瓦片给空闲工作线程
+    this.assignTilesToWorker(jobInfo);
+  }
+
+  assignTilesToWorker(jobInfo) {
+    while (jobInfo.allocatedTiles < jobInfo.total && this.hasAvailableWorker()) {
+      const workerId = this.getAvailableWorkerId();
+      // 没有空闲结束分配
+      if (workerId === null) break;
+      // 计算要分配的瓦片范围
+      const startIndex = jobInfo.allocatedTiles;
+      const endIndex = Math.min(
+        jobInfo.allocatedTiles + jobInfo.perWorkerChunkSize,
+        jobInfo.total
+      );
+
+      // 截取瓦片子集
+      const tileChunk = jobInfo.tiles.slice(startIndex, endIndex);
+      const chunkSize = endIndex - startIndex;
+
+      // 分配任务给工作线程
+      this.assignTileChunkToWorker(jobInfo, workerId, tileChunk, chunkSize);
+
+      // 更新分配状态
+      jobInfo.allocatedTiles = endIndex;
+      jobInfo.tasksAssigned++;
+
+      console.log(`分配${startIndex}~${endIndex}瓦片给工作线程${workerId}，共计${chunkSize}个瓦片`);
+    }
+
+    // 如果没有分配完所有瓦片，等待空闲工作线程
+    if (jobInfo.allocatedTiles < jobInfo.total) {
+      console.log(`[${jobInfo.jobId}] 等待空闲工作线程 (已分配 ${jobInfo.allocatedTiles}/${jobInfo.total})`);
+    } else {
+      console.log(`[${jobInfo.jobId}] 所有瓦片已分配到工作线程`);
     }
   }
 
-  assignToWorker(job, workerId) {
+  // 分配瓦片子集给特定工作线程
+  assignTileChunkToWorker(jobInfo, workerId, tileChunk, chunkSize) {
     if (!this.workerPool[workerId]) {
       console.error(`工作线程 ${workerId} 不存在，无法分配任务`);
-      // 拒绝任务Promise
-      if (this.promiseCallbacks.has(job.jobId)) {
-        const { reject } = this.promiseCallbacks.get(job.jobId);
-        this.promiseCallbacks.delete(job.jobId);
-        reject(new Error(`工作线程 ${workerId} 不可用`));
-      }
       return;
     }
 
     try {
+      // 标记工作线程为忙碌状态
       this.workerPool[workerId].busy = true;
-      this.workerPool[workerId].jobId = job.jobId;
-      this.workerPool[workerId].currentJobId = job.jobId;
+      this.workerPool[workerId].currentJobId = jobInfo.jobId;
       this.workerPool[workerId].lastActivity = Date.now();
 
-      job.status = 'processing';
-      job.workerId = workerId;
-
-      this.emit('job-update', {
-        jobId: job.jobId,
-        status: 'processing',
+      // 更新任务状态
+      const taskInfo = {
+        jobId: jobInfo.jobId,
         workerId,
-        startTime: job.startTime
-      });
+        startTime: Date.now(),
+        chunkSize,
+        completed: 0
+      };
 
-      // 发送作业给工作线程 - 确保只传递可序列化数据
+      this.emit('worker-task-assigned', taskInfo);
+      // 发送任务信息给工作线程
       this.workerPool[workerId].worker.postMessage({
-        type: 'start-download',
-        jobId: job.jobId,
+        type: 'download-chunk',
+        jobId: jobInfo.jobId,
         workerId,
-        tiles: job.tiles,
+        tiles: tileChunk,
+        chunkStartIndex: jobInfo.allocatedTiles,
         storageDir: this.storageDir,
-        urlTemplate: job.options.urlTemplate,
-        subdomains: job.options.subdomains,
-        storagePath: job.options.storagePath
+        urlTemplate: jobInfo.options.urlTemplate,
+        subdomains: jobInfo.options.subdomains,
+        storagePath: jobInfo.options.storagePath
       });
     } catch (error) {
       console.error(`给工作线程 ${workerId} 分配任务失败:`, error);
       this.workerPool[workerId].busy = false;
       this.workerPool[workerId].currentJobId = null;
-
-      // 拒绝任务Promise
-      if (this.promiseCallbacks.has(job.jobId)) {
-        const { reject } = this.promiseCallbacks.get(job.jobId);
-        this.promiseCallbacks.delete(job.jobId);
-        reject(error);
-      }
     }
   }
 
-  // 计算瓦片请求
-  calculateTiles(options) {
-    // console.log("🚀 ~ TileService ~ calculateTiles ~ options:", options)
-    const { bounds, minZoom, maxZoom } = options;
-    const [south, west, north, east] = bounds;
 
-    // 确保在有效范围内
-    const clampedSouth = Math.max(-85.0511, Math.min(85.0511, south));
-    const clampedNorth = Math.max(-85.0511, Math.min(85.0511, north));
-    const clampedWest = (west % 360 + 360) % 360;
-    const clampedEast = (east % 360 + 360) % 360;
-
-    const tiles = [];
-
-    // 计算每个缩放级别的瓦片
-    for (let z = minZoom; z <= maxZoom; z++) {
-      // 计算该缩放级别的缩放比例
-      const scale = Math.pow(2, z);
-
-      // 计算经度方向的瓦片范围
-      let tileMinX = Math.floor((clampedWest + 180) / 360 * scale);
-      let tileMaxX = Math.floor((clampedEast + 180) / 360 * scale);
-
-      // 处理跨越日期变更线的情况
-      if (tileMinX > tileMaxX) {
-        tileMaxX += scale;
-      }
-
-      // 计算纬度方向的瓦片范围
-      // 使用墨卡托投影公式
-      const rad = (deg) => deg * Math.PI / 180;
-      const tileMinY = Math.floor(
-        (1 - Math.log(Math.tan(rad(clampedNorth)) + 1 / Math.cos(rad(clampedNorth))) / Math.PI
-        ) / 2 * scale);
-
-      const tileMaxY = Math.floor(
-        (1 - Math.log(Math.tan(rad(clampedSouth)) + 1 / Math.cos(rad(clampedSouth))) / Math.PI
-        ) / 2 * scale);
-
-      // 确保在有效范围内
-      const maxTile = scale - 1;
-      const minX = Math.max(0, Math.min(tileMinX, maxTile));
-      const maxX = Math.min(maxTile, Math.max(tileMinX, tileMaxX));
-      const minY = Math.max(0, Math.min(tileMinY, tileMaxY));
-      const maxY = Math.min(maxTile, Math.max(tileMinY, tileMaxY));
-
-      // 生成该缩放级别的所有瓦片
-      for (let x = minX; x <= maxX; x++) {
-        for (let y = minY; y <= maxY; y++) {
-          // 对于跨越日期变更线的瓦片做调整
-          const actualX = x % scale;
-          tiles.push({ z, x: actualX, y });
-        }
-      }
-    }
-
-    console.log(`计算瓦片: 层级 ${minZoom}-${maxZoom}, 总数: ${tiles.length}`);
-    return tiles;
-  }
 
   hasAvailableWorker() {
     return Object.values(this.workerPool).some(worker => !worker.busy);
@@ -404,17 +382,6 @@ class TileService extends EventEmitter {
   // 安全关闭所有工作线程
   shutdown() {
     console.log('关闭瓦片服务...');
-
-    // 清空队列
-    this.downloadQueue.forEach(job => {
-      if (this.promiseCallbacks.has(job.jobId)) {
-        const { reject } = this.promiseCallbacks.get(job.jobId);
-        reject(new Error('服务已关闭'));
-        this.promiseCallbacks.delete(job.jobId);
-      }
-    });
-
-    this.downloadQueue = [];
     this.emit('queue-update', {
       active: 0,
       queued: 0,
@@ -432,12 +399,6 @@ class TileService extends EventEmitter {
         console.error(`终止工作线程 ${worker.id} 失败:`, error);
       }
     });
-
-    // 清除所有未完成的Promise回调
-    this.promiseCallbacks.forEach(({ reject }) => {
-      reject(new Error('服务已关闭'));
-    });
-    this.promiseCallbacks.clear();
 
     console.log('瓦片服务已关闭');
   }

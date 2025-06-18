@@ -41,18 +41,9 @@ app.whenReady().then(() => {
   // 初始化瓦片服务
   tileService = new TileService(userDataPath);
 
-  // 将服务事件转发到渲染进程
-  tileService.on('job-created', (job) => {
-    console.log("🚀 ~ tileService.on ~ job:", job)
-    mainWindow.webContents.send('tile-job-created', job);
-  });
-
+  //
   tileService.on('progress', (progress) => {
-    mainWindow.webContents.send('tile-progress', progress);
-  });
-
-  tileService.on('job-completed', (result) => {
-    mainWindow.webContents.send('tile-job-completed', result);
+    mainWindow.webContents.send('tile-job-progress', progress);
   });
 
   tileService.on('job-update', (update) => {
@@ -72,10 +63,19 @@ app.whenReady().then(() => {
     mainWindow.webContents.send('tile-service-error', error);
   });
 
+  // 监听线程任务分配
+  tileService.on('worker-task-assigned', (workerTaskInfo) => {
+    mainWindow.webContents.send('assigned-task-worker', workerTaskInfo)
+  })
+  // 监听线程任务进度
+  tileService.on('chunk-progress', (progress) => {
+    mainWindow.webContents.send('chunk-progress', progress);
+  })
+
   // 设置IPC通信
   ipcMain.handle('download-area', async (event, options) => {
     try {
-      const result = await tileService.downloadArea(options);
+      const result = await tileService.createDownloadJob(options);
       return { success: true, result };
     } catch (error) {
       return { success: false, error: error.message };

@@ -123,11 +123,11 @@ function formatMilliseconds(ms) {
   const formattedMinutes = remainingMinutes.toString().padStart(2, '0');
   const formattedSeconds = remainingSeconds.toString().padStart(2, '0');
 
-  return `${formattedHours}h${formattedMinutes}m${formattedSeconds}s`;
+  return `${formattedHours}:${formattedMinutes}:${formattedSeconds}`;
 }
 // 消息处理
 parentPort.on('message', async (msg) => {
-  if (msg.type !== 'start-download') return;
+  if (msg.type !== 'download-chunk') return;
 
   const { jobId, tiles = [], urlTemplate, subdomains, storagePath } = msg;
   const startTime = Date.now();
@@ -145,9 +145,9 @@ parentPort.on('message', async (msg) => {
       type: 'progress',
       jobId,
       workerId,
-      status: 'started',
-      total: totalTiles,
-      downloaded: 0,
+      status: `线程任务${(workerId + 1)}开始`,
+      chunkSize: totalTiles,
+      completed: 0,
       errors: 0
     });
 
@@ -159,22 +159,6 @@ parentPort.on('message', async (msg) => {
       const lastPath = storagePath || storageDir;
       const tileDir = path.join(lastPath, `${z}/${x}`);
       const tilePath = path.join(tileDir, `${y}.png`);
-
-      // 报告进度
-      if (i % 10 === 0 || i === totalTiles - 1) {
-        parentPort.postMessage({
-          type: 'progress',
-          jobId,
-          workerId,
-          z, x, y,
-          status: 'processing',
-          index: i,
-          total: totalTiles,
-          downloaded: downloadedCount,
-          skipped: skippedCount,
-          errors: errorCount
-        });
-      }
 
       // 检查瓦片是否已存在
       if (await fileExists(tilePath)) {
@@ -201,7 +185,21 @@ parentPort.on('message', async (msg) => {
       } else {
         errorCount++;
       }
-
+      // 报告进度
+      if (i % 10 === 0 || i === totalTiles - 1) {
+        parentPort.postMessage({
+          type: 'progress',
+          jobId,
+          workerId,
+          z, x, y,
+          status: `线程任务${(workerId + 1)}下载${z, x, y}中`,
+          index: i,
+          chunkSize: totalTiles,
+          completed: downloadedCount,
+          skipped: skippedCount,
+          errors: errorCount
+        });
+      }
       // 避免内存溢出
       if (i % 100 === 0) {
         await new Promise(resolve => setTimeout(resolve, 1));
@@ -209,14 +207,14 @@ parentPort.on('message', async (msg) => {
     }
 
     // 任务完成
-    log(`任务 ${jobId} 完成: ${downloadedCount} 下载, ${skippedCount} 跳过, ${errorCount} 失败`, 'info');
+    log(`线程任务 ${(workerId + 1)} 完成: ${downloadedCount} 下载, ${skippedCount} 跳过, ${errorCount} 失败`, 'info');
 
     parentPort.postMessage({
-      type: 'completed',
+      type: 'chunk-completed',
       jobId,
       workerId,
-      status: 'success',
-      downloadedCount,
+      status: `${(workerId + 1)}完成`,
+      completed: downloadedCount,
       skippedCount,
       errorCount,
       startTime,
@@ -230,9 +228,10 @@ parentPort.on('message', async (msg) => {
     parentPort.postMessage({
       type: 'error',
       jobId,
+      status: `线程${(workerId + 1)}失败`,
       workerId,
       error: error.message,
-      downloadedCount,
+      completed: downloadedCount,
       skippedCount,
       errorCount
     });
