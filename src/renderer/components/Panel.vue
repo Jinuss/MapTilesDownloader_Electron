@@ -19,6 +19,7 @@ const mapStore = useMapStore();
 const { areaCode, geoJson } = storeToRefs(mapStore);
 
 const zoom = ref([1, 10]);
+const downloadMode = ref("single");
 const isDownloading = ref(false);
 
 // 瓦片任务：总任务
@@ -82,7 +83,7 @@ async function downloadTiles() {
   isDownloading.value = true;
 
   try {
-    const { success, result } = await window.electronAPI.downloadArea({
+    let p = {
       bounds: [
         bounds.getSouthWest().lat,
         bounds.getSouthWest().lng,
@@ -94,7 +95,14 @@ async function downloadTiles() {
       urlTemplate: urlTemplate,
       subdomains,
       storagePath: storagePath.value,
-    });
+    };
+    if (downloadMode.value == "single") {
+      p.minZoom=p.maxZoom;
+    }
+    console.log("🚀 ~ downloadTiles ~ p:", p);
+
+    // return;
+    const { success, result } = await window.electronAPI.downloadArea(p);
 
     console.log("🚀 ~ downloadTiles ~ job:", result);
 
@@ -181,10 +189,19 @@ const openFolder = async () => {
         :marks="marks"
       />
     </div>
-
     <div class="form-item">
       <div class="form-item-header">
         <div class="step-number">3</div>
+        <label for="">级别设置模式</label>
+      </div>
+      <el-radio-group v-model="downloadMode" size="medium">
+        <el-radio label="single" value="single">下载最大</el-radio>
+        <el-radio label="multi" value="multi">下载多级别</el-radio>
+      </el-radio-group>
+    </div>
+    <div class="form-item">
+      <div class="form-item-header">
+        <div class="step-number">4</div>
         <label for="">瓦片存储目录</label>
       </div>
       <div>

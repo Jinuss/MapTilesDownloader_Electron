@@ -1,55 +1,81 @@
-// 计算瓦片个数
 function calculateTiles(options) {
-    // console.log("🚀 ~ TileService ~ calculateTiles ~ options:", options)
     const { bounds, minZoom, maxZoom } = options;
     const [south, west, north, east] = bounds;
 
-    // 确保在有效范围内
+    // 确保纬度在有效范围内 [-85.0511, 85.0511]
     const clampedSouth = Math.max(-85.0511, Math.min(85.0511, south));
     const clampedNorth = Math.max(-85.0511, Math.min(85.0511, north));
-    const clampedWest = (west % 360 + 360) % 360;
-    const clampedEast = (east % 360 + 360) % 360;
+    
+    // 规范化经度到 [0, 360) 范围
+    let clampedWest = ((west % 360) + 360) % 360;
+    let clampedEast = ((east % 360) + 360) % 360;
+    
+    // 如果东经小于西经，说明跨越日期变更线
+    const crossesDateLine = clampedEast < clampedWest;
+    if (crossesDateLine) {
+        clampedEast += 360;
+    }
 
     const tiles = [];
+    const latRanges = {};
 
-    // 计算每个缩放级别的瓦片
+    // 为每个缩放级别预先计算纬度范围
     for (let z = minZoom; z <= maxZoom; z++) {
-        // 计算该缩放级别的缩放比例
-        const scale = Math.pow(2, z);
+        const scale = 1 << z; // 等同于 Math.pow(2, z)
+        
+        // 修正: 使用正确的墨卡托投影公式
+        const toTileY = (lat) => {
+            const sinLatitude = Math.sin(lat * Math.PI / 180);
+            const y = 0.5 - Math.log((1 + sinLatitude) / (1 - sinLatitude)) / (4 * Math.PI);
+            return Math.max(0, Math.min(scale - 1, Math.floor(y * scale)));
+        };
 
-        // 计算经度方向的瓦片范围
-        let tileMinX = Math.floor((clampedWest + 180) / 360 * scale);
-        let tileMaxX = Math.floor((clampedEast + 180) / 360 * scale);
+        const yMin = toTileY(clampedNorth);
+        const yMax = toTileY(clampedSouth);
+        latRanges[z] = { yMin, yMax, scale };
+    }
 
-        // 处理跨越日期变更线的情况
-        if (tileMinX > tileMaxX) {
-            tileMaxX += scale;
-        }
-
-        // 计算纬度方向的瓦片范围
-        // 使用墨卡托投影公式
-        const rad = (deg) => deg * Math.PI / 180;
-        const tileMinY = Math.floor(
-            (1 - Math.log(Math.tan(rad(clampedNorth)) + 1 / Math.cos(rad(clampedNorth))) / Math.PI
-            ) / 2 * scale);
-
-        const tileMaxY = Math.floor(
-            (1 - Math.log(Math.tan(rad(clampedSouth)) + 1 / Math.cos(rad(clampedSouth))) / Math.PI
-            ) / 2 * scale);
-
-        // 确保在有效范围内
-        const maxTile = scale - 1;
-        const minX = Math.max(0, Math.min(tileMinX, maxTile));
-        const maxX = Math.min(maxTile, Math.max(tileMinX, tileMaxX));
-        const minY = Math.max(0, Math.min(tileMinY, tileMaxY));
-        const maxY = Math.min(maxTile, Math.max(tileMinY, tileMaxY));
-
-        // 生成该缩放级别的所有瓦片
-        for (let x = minX; x <= maxX; x++) {
-            for (let y = minY; y <= maxY; y++) {
-                // 对于跨越日期变更线的瓦片做调整
-                const actualX = x % scale;
-                tiles.push({ z, x: actualX, y });
+    // 计算经度范围并处理日期变更线
+    for (let z = minZoom; z <= maxZoom; z++) {
+        const { yMin, yMax, scale } = latRanges[z];
+        
+        // 计算经度范围的瓦片索引
+        const toTileX = (lon) => Math.floor(((lon % 360) + 360) % 360 * scale / 360);
+        
+        // 1. 处理正常情况（不跨越日期变更线）
+        if (!crossesDateLine) {
+            const xMin = toTileX(clampedWest);
+            const xMax = toTileX(clampedEast);
+            
+            for (let x = xMin; x <= xMax; x++) {
+                const wrappedX = x % scale;
+                for (let y = yMin; y <= yMax; y++) {
+                    tiles.push({ z, x: wrappedX, y });
+                }
+            }
+        } 
+        // 2. 处理跨越日期变更线的情况
+        else {
+            const xMin1 = toTileX(clampedWest);
+            const xMax1 = scale - 1;  // 从西到360度
+            
+            const xMin2 = 0;
+            const xMax2 = toTileX(clampedEast);  // 从0度到东
+            
+            // 第一段: 西到360度
+            for (let x = xMin1; x <= xMax1; x++) {
+                const wrappedX = x % scale;
+                for (let y = yMin; y <= yMax; y++) {
+                    tiles.push({ z, x: wrappedX, y });
+                }
+            }
+            
+            // 第二段: 0度到东
+            for (let x = xMin2; x <= xMax2; x++) {
+                const wrappedX = x % scale;
+                for (let y = yMin; y <= yMax; y++) {
+                    tiles.push({ z, x: wrappedX, y });
+                }
             }
         }
     }
@@ -58,4 +84,4 @@ function calculateTiles(options) {
     return tiles;
 }
 
-module.exports = { calculateTiles }
+module.exports = { calculateTiles };
