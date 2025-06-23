@@ -54,10 +54,6 @@ app.whenReady().then(() => {
     mainWindow.webContents.send('tile-job-failed', error);
   });
 
-  tileService.on('queue-update', (queue) => {
-    mainWindow.webContents.send('tile-queue-update', queue);
-  });
-
   tileService.on('error', (error) => {
     console.error('瓦片服务错误:', error);
     mainWindow.webContents.send('tile-service-error', error);

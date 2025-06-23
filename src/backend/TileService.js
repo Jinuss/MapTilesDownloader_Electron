@@ -382,11 +382,6 @@ class TileService extends EventEmitter {
   // 安全关闭所有工作线程
   shutdown() {
     console.log('关闭瓦片服务...');
-    this.emit('queue-update', {
-      active: 0,
-      queued: 0,
-      workers: 0
-    });
 
     // 终止所有工作线程
     Object.values(this.workerPool).forEach(worker => {

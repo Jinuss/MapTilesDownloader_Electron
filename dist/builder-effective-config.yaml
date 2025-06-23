@@ -1,0 +1,16 @@
+directories:
+  output: dist
+  buildResources: build
+appId: com.mapTilesDownload.leador
+productName: MapTilesDownload
+copyright: Copyright © 2025
+win:
+  target: nsis
+  icon: build/icon.ico
+  requestedExecutionLevel: asInvoker
+nsis:
+  oneClick: true
+  perMachine: false
+  allowElevation: false
+files: []
+electronVersion: 36.3.2

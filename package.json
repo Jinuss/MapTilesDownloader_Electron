@@ -1,12 +1,14 @@
 {
   "name": "maptilesdownloader_electron",
   "version": "1.0.0",
-  "description": "",
+  "description": "mapTilesDownload",
   "main": "src/main/main.js",
   "scripts": {
     "dev": "concurrently \"vite --config src/renderer/vite.config.js\" \"electron .\"",
     "start": "vite --config src/renderer/vite.config.js",
     "build": "electron-builder",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder -w",
     "watch": "concurrently \"npm run watch:renderer\" \"npm run watch:backend\"",
     "watch:renderer": "vite build --watch",
     "watch:backend": "nodemon --watch src/backend --exec electron .",
@@ -35,5 +37,23 @@
     "pinia": "^3.0.2",
     "unplugin-auto-import": "^19.3.0",
     "vue": "^3.5.16"
+  },
+  "build": {
+    "appId": "com.mapTilesDownload.leador",
+    "productName": "MapTilesDownload",
+    "copyright": "Copyright © 2025",
+    "directories": {
+      "output": "dist"
+    },
+    "win": {
+      "target": "nsis",
+      "icon": "build/icon.ico",
+      "requestedExecutionLevel": "asInvoker"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "allowElevation": false
+    }
   }
 }

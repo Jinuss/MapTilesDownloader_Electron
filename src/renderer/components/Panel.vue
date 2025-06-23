@@ -34,6 +34,19 @@ const workerTasks = ref({});
 
 const activeJob = ref({});
 
+const completed = ref(0);
+
+watch(
+  () => workerTasks.value,
+  (object) => {
+    let count = 0;
+    for (const key in object) {
+      count += object[key]?.completed;
+    }
+    completed.value = count;
+  }
+);
+
 onMounted(() => {
   // 监听线程任务分配
   window.electronAPI?.onWorkerTaskAssigned((data) => {
@@ -97,7 +110,7 @@ async function downloadTiles() {
       storagePath: storagePath.value,
     };
     if (downloadMode.value == "single") {
-      p.minZoom=p.maxZoom;
+      p.minZoom = p.maxZoom;
     }
     console.log("🚀 ~ downloadTiles ~ p:", p);
 
@@ -218,14 +231,14 @@ const openFolder = async () => {
       <h3>状态: {{ tileTask.status }}</h3>
       <div>
         <p>总计：{{ tileTask.total }}</p>
-        <p>已下载：{{ activeJob.downloaded }}</p>
+        <p>已下载：{{ completed }}</p>
       </div>
       <div class="progress-ring">
         <el-progress
           type="circle"
           :percentage="
             activeJob.total
-              ? Math.floor((activeJob.downloaded * 100) / activeJob.total)
+              ? Math.floor((completed * 100) / activeJob.total)
               : 100
           "
         />

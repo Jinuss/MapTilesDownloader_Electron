@@ -1,0 +1,90 @@
+Arguments: 
+  C:\Program Files\nodejs\node.exe C:\Program Files (x86)\Yarn\bin\yarn.js pack
+
+PATH: 
+  C:\Python312\Scripts\;C:\Python312\;D:\java\jdk-11.0.13\bin;C:\Windows\system32;C:\Windows;C:\Windows\System32\Wbem;C:\Windows\System32\WindowsPowerShell\v1.0\;C:\Windows\System32\OpenSSH\;C:\Program Files (x86)\NVIDIA Corporation\PhysX\Common;C:\Program Files\NVIDIA Corporation\NVIDIA NvDLISR;D:\Git\cmd;C:\WINDOWS\system32;C:\WINDOWS;C:\WINDOWS\System32\Wbem;C:\WINDOWS\System32\WindowsPowerShell\v1.0\;C:\WINDOWS\System32\OpenSSH\;C:\Program Files (x86)\Yarn\bin\;C:\ProgramData\chocolatey\bin;C:\Users\sunqi\AppData\Roaming\nvm;C:\Program Files\nodejs;C:\Users\sunqi\AppData\Local\Microsoft\WindowsApps;C:\Users\sunqi\AppData\Local\Programs\Microsoft VS Code\bin;C:\Users\sunqi\AppData\Local\Yarn\bin;C:\Program Files\nodejs;C:\Users\sunqi\AppData\Roaming\nvm;C:\Program Files\nodejs;C:\Program Files\JetBrains\PyCharm 2024.2.2\bin;;%DevEco Studio%
+
+Yarn version: 
+  1.22.19
+
+Node version: 
+  20.11.1
+
+Platform: 
+  win32 x64
+
+Trace: 
+  SyntaxError: D:\1Awork\map\MapTilesDownloader_Electron\package.json: Expected ',' or '}' after property value in JSON at position 1570
+      at JSON.parse (<anonymous>)
+      at C:\Program Files (x86)\Yarn\lib\cli.js:1629:59
+      at Generator.next (<anonymous>)
+      at step (C:\Program Files (x86)\Yarn\lib\cli.js:310:30)
+      at C:\Program Files (x86)\Yarn\lib\cli.js:321:13
+
+npm manifest: 
+  {
+    "name": "maptilesdownloader_electron",
+    "version": "1.0.0",
+    "description": "",
+    "main": "src/main/main.js",
+    "scripts": {
+      "dev": "concurrently \"vite --config src/renderer/vite.config.js\" \"electron .\"",
+      "start": "vite --config src/renderer/vite.config.js",
+      "build": "electron-builder",
+      "pack": "electron-builder --dir",
+      "dist":"electron-builder -w",
+      "watch": "concurrently \"npm run watch:renderer\" \"npm run watch:backend\"",
+      "watch:renderer": "vite build --watch",
+      "watch:backend": "nodemon --watch src/backend --exec electron .",
+      "test": "echo \"Error: no test specified\" && exit 1"
+    },
+    "keywords": [],
+    "author": "",
+    "license": "ISC",
+    "devDependencies": {
+      "@vitejs/plugin-vue": "^5.2.4",
+      "concurrently": "^9.1.2",
+      "electron": "^36.3.2",
+      "electron-builder": "^26.0.12",
+      "nodemon": "^3.1.10",
+      "vite": "^6.3.5"
+    },
+    "dependencies": {
+      "axios": "^1.9.0",
+      "electron-is-dev": "^3.0.1",
+      "element-plus": "^2.9.11",
+      "express": "^5.1.0",
+      "fs-extra": "^11.3.0",
+      "leaflet": "^1.9.4",
+      "leaflet-draw": "^1.0.4",
+      "mapbox-gl": "^3.12.0",
+      "pinia": "^3.0.2",
+      "unplugin-auto-import": "^19.3.0",
+      "vue": "^3.5.16"
+    },
+    "build": {
+      "appId": "com.mapTilesDownload.leador",
+      "productName": "MapTilesDownload",
+      "copyright": "Copyright © 2025",
+      "directories": {
+        "output": "dist"
+      },
+      "win": {
+        "target": "nsis",
+        "icon": "build/icon.ico",
+        "requestedExecutionLevel": "asInvoker",
+        "signingHashAlgorithms": ["sha256"] // 支持现代签名
+      },
+      "nsis": {
+        "oneClick": true,      // 启用一键安装
+        "perMachine": false,
+        "allowElevation": false
+      }
+    },
+  }
+
+yarn manifest: 
+  No manifest
+
+Lockfile: 
+  No lockfile
