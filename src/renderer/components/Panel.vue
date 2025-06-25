@@ -32,8 +32,6 @@ const tileTask = ref({
 
 const workerTasks = ref({});
 
-const activeJob = ref({});
-
 const completed = ref(0);
 
 watch(
@@ -47,7 +45,16 @@ watch(
   }
 );
 
+const taskInfo = ref({
+  status: "",
+});
+
 onMounted(() => {
+  // 监听任务信息
+  window.electronAPI?.onTaskInfoUpdate((data) => {
+    console.log("🚀 ~ window.electronAPI?.onTaskInfoUpdate ~ data:", data);
+    taskInfo.value = data;
+  });
   // 监听线程任务分配
   window.electronAPI?.onWorkerTaskAssigned((data) => {
     console.log("🚀 ~ window.electronAPI?.onWorkerTaskAssigned ~ data:", data);
@@ -207,7 +214,7 @@ const openFolder = async () => {
         <div class="step-number">3</div>
         <label for="">级别设置模式</label>
       </div>
-      <el-radio-group v-model="downloadMode" size="medium">
+      <el-radio-group v-model="downloadMode" size="default">
         <el-radio label="single" value="single">下载最大</el-radio>
         <el-radio label="multi" value="multi">下载多级别</el-radio>
       </el-radio-group>
@@ -228,7 +235,7 @@ const openFolder = async () => {
       >
     </div>
     <div class="job-status">
-      <h3>状态: {{ tileTask.status }}</h3>
+      <h3>状态: {{ taskInfo.status }}</h3>
       <div>
         <p>总计：{{ tileTask.total }}</p>
         <p>已下载：{{ completed }}</p>
@@ -237,9 +244,7 @@ const openFolder = async () => {
         <el-progress
           type="circle"
           :percentage="
-            activeJob.total
-              ? Math.floor((completed * 100) / activeJob.total)
-              : 100
+            completed ? Math.floor((completed * 100) / tileTask.total) : 100
           "
         />
       </div>

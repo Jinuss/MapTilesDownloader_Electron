@@ -68,13 +68,18 @@ app.whenReady().then(() => {
     mainWindow.webContents.send('chunk-progress', progress);
   })
 
+  // 监听任务信息更新
+  tileService.on('update-task-info', (taskInfo) => {
+    mainWindow.webContents.send('update-task-info', taskInfo);
+  })
+
   // 设置IPC通信
   ipcMain.handle('download-area', async (event, options) => {
     try {
       const result = await tileService.createDownloadJob(options);
       return { success: true, result };
     } catch (error) {
-      return { success: false, error: error.message };
+      return { success: false, result: error };
     }
   });
 

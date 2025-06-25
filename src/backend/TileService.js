@@ -228,13 +228,22 @@ class TileService extends EventEmitter {
 
   // 创建下载任务
   createDownloadJob(options) {
-    return new Promise((resolve, reject) => {
+    return new Promise(async (resolve, reject) => {
       try {
         const jobId = `job-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
-
+        let taskInfo = {
+          jobId,
+          type: 'task',
+          status: "",
+        }
         // 计算瓦片
-        const tiles = calculateTiles(options);
-
+        console.log("开始计算瓦片")
+        taskInfo.status = '计算瓦片中'
+        this.emit('update-task-info', taskInfo)
+        const resp = await calculateTiles(options);
+        const tiles = resp.data;
+        taskInfo.status = '完成瓦片计算';
+        this.emit('update-task-info', taskInfo)
         const jobInfo = {
           jobId,
           options,
@@ -254,10 +263,11 @@ class TileService extends EventEmitter {
 
         resolve({ jobId: jobInfo.jobId, total: jobInfo.total, tiles: jobInfo.tiles, status: jobInfo.status })
         // 计算每个工作线程的瓦片分配大小
-        this.calculateJobDistribution(jobInfo)
-        this.activeJobs.set(jobId, jobInfo)
-        this.processJob(jobInfo)
+        // this.calculateJobDistribution(jobInfo)
+        // this.activeJobs.set(jobId, jobInfo)
+        // this.processJob(jobInfo)
       } catch (error) {
+        console.log("🚀 ~ TileService ~ return new Promise ~ error:", error)
         reject(error);
       }
     });
