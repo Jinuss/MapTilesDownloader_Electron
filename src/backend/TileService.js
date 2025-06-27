@@ -6,11 +6,11 @@ const os = require('os');
 const { calculateTiles } = require('./Utils.js');
 
 class TileService extends EventEmitter {
-  constructor(userDataPath) {
+  constructor(defaultDownloadPath) {
     super();
 
     // 解决核心错误：使用传入的用户数据路径
-    this.storageDir = path.join(userDataPath, '');
+    this.storageDir = path.join(defaultDownloadPath, '');
 
     // 确保存储目录存在
     fs.ensureDirSync(this.storageDir);

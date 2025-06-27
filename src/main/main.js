@@ -5,7 +5,7 @@ const path = require('path');
 const TileService = require('../backend/TileService');
 
 const isDev = require('electron-is-dev');
-const userDataPath = app.getPath('userData');
+const defaultDownloadPath = app.getPath('downloads');
 
 let mainWindow;
 let tileService;
@@ -39,7 +39,7 @@ app.whenReady().then(() => {
   createWindow();
 
   // 初始化瓦片服务
-  tileService = new TileService(userDataPath);
+  tileService = new TileService(defaultDownloadPath);
 
   //
   tileService.on('progress', (progress) => {

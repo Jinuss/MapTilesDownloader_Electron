@@ -1,6 +1,7 @@
 <script setup>
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
+import folder from "@/assets/folder.png";
 import { areaList } from "@/lib/areaCode";
 import { useMapStore } from "@/stores";
 import { ZOOM_MARKS, DOWNLOAD_LEVEL_MODES, ZOOM } from "@/const";
@@ -244,11 +245,11 @@ const openFolder = async () => {
         <div class="step-number">4</div>
         <label for="">瓦片存储目录</label>
       </div>
-      <div>
-        <el-button id="selectBtn" @click="openFolder">选择目录</el-button>
+      <div class="path-container">
         <p class="path" :title="tilesConfig.storagePath">
           {{ tilesConfig.storagePath }}
         </p>
+        <img class="pathBtn" :src="folder" @click="openFolder" />
       </div>
     </div>
     <div class="form-item">
@@ -263,12 +264,22 @@ const openFolder = async () => {
   align-content: center;
   align-items: center;
 }
-.path {
+.path-container {
+  display: flex;
   border-bottom: 1px solid #ccc;
-  margin: 6px 2px;
-  white-space: nowrap; /* 文本不换行 */
-  overflow: hidden; /* 隐藏溢出内容 */
-  text-overflow: ellipsis; /* 显示省略号 */
+  height: 24px;
+  justify-content: space-between;
+}
+.path {
+  line-height: 24px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pathBtn {
+  height: 24px;
+  width: 24px;
+  cursor: pointer;
 }
 .controls {
   width: 380px;
