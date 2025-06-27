@@ -3,7 +3,7 @@ import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { areaList } from "@/lib/areaCode";
 import { useMapStore } from "@/stores";
-import { BASE_MAP_TILES_URL } from "@/const";
+import { ZOOM_MARKS, DOWNLOAD_LEVEL_MODES, ZOOM } from "@/const";
 import { storeToRefs } from "pinia";
 import {
   flattenTree,
@@ -16,11 +16,15 @@ import { ElMessage } from "element-plus";
 const flatAreaList = flattenTree(areaList);
 
 const mapStore = useMapStore();
+
 const { areaCode, geoJson } = storeToRefs(mapStore);
 
-const zoom = ref([1, 10]);
-const downloadMode = ref("single");
-const isDownloading = ref(false);
+const tilesConfig = ref({
+  currentAreaCode: [],
+  zoom: ZOOM,
+  mode: DOWNLOAD_LEVEL_MODES.SINGLE,
+  storagePath: "",
+});
 
 // 瓦片任务：总任务
 const tileTask = ref({
@@ -32,24 +36,20 @@ const tileTask = ref({
 
 const workerTasks = ref({});
 
-const completed = ref(0);
-
-watch(
-  () => workerTasks.value,
-  (object) => {
-    let count = 0;
-    for (const key in object) {
-      count += object[key]?.completed;
-    }
-    completed.value = count;
-  }
-);
-
 const taskInfo = ref({
   status: "",
 });
 
+const getDefaultStorageDir = async () => {
+  const dir = await window.electronAPI.getDefaultFolder();
+  if (dir) {
+    tilesConfig.value.storagePath = dir;
+  }
+};
+
 onMounted(() => {
+  getDefaultStorageDir();
+
   // 监听任务信息
   window.electronAPI?.onTaskInfoUpdate((data) => {
     console.log("🚀 ~ window.electronAPI?.onTaskInfoUpdate ~ data:", data);
@@ -75,53 +75,72 @@ onMounted(() => {
   });
 });
 
-async function downloadTiles() {
+const checkDownloadConfig = () => {
   if (!geoJson.value) {
-    ElMessage.error("请先选择区域");
-    return;
+    return { message: "请选择区域", state: false };
   }
   const visibleLayers = mapStore.visibleLayerName;
   if (!visibleLayers.length) {
-    ElMessage.error("请先选择图层");
-    return;
+    return { message: "请先选择图层", state: false };
   }
   if (visibleLayers.length > 1) {
-    ElMessage.error("一次只能下载一种类型的底图");
-    return;
+    return { message: "一次只能下载一种类型的底图", state: false };
   }
-  if (!storagePath.value) {
-    ElMessage.error("请先选择存储目录");
+  if (!tilesConfig.value.storagePath) {
+    return { message: "请先选择存储目录", state: false };
+  }
+  return { message: "校验通过", state: true };
+};
+
+const handleDownload = async () => {
+  // 先校验下载配置
+  const { state, message } = checkDownloadConfig();
+  if (!state) {
+    ElMessage.error(message);
     return;
   }
 
+  // 校验通过，开始下载
+  downloadTiles();
+};
+
+// 获取瓦片配置
+const getTilesConfig = () => {
   const layer = getLayerByName(visibleLayers[0]);
   const { urlTemplate, subdomains } = getWrappedUrlByLayerType(
     layer.url,
     layer.type
   );
-  const bounds = L.geoJSON(geoJson.value).getBounds();
-  isDownloading.value = true;
+  const bound = L.geoJSON(geoJson.value).getBounds();
 
+  const bounds = [
+    bound.getSouthWest().lat,
+    bound.getSouthWest().lng,
+    bound.getNorthEast().lat,
+    bound.getNorthEast().lng,
+  ];
+
+  return { bounds, urlTemplate, subdomains };
+};
+
+async function downloadTiles() {
+  const { bounds, urlTemplate, subdomains } = getTilesConfig();
+  const [minZoom, maxZoom] = tilesConfig.value.zoom;
+  const { storagePath } = tilesConfig.value;
   try {
     let p = {
-      bounds: [
-        bounds.getSouthWest().lat,
-        bounds.getSouthWest().lng,
-        bounds.getNorthEast().lat,
-        bounds.getNorthEast().lng,
-      ],
-      minZoom: zoom.value[0],
-      maxZoom: zoom.value[1],
-      urlTemplate: urlTemplate,
+      bounds,
+      minZoom,
+      maxZoom,
+      urlTemplate,
       subdomains,
-      storagePath: storagePath.value,
+      storagePath,
     };
-    if (downloadMode.value == "single") {
+    if (tilesConfig.value.mode == DOWNLOAD_LEVEL_MODES.SINGLE) {
       p.minZoom = p.maxZoom;
     }
     console.log("🚀 ~ downloadTiles ~ p:", p);
 
-    // return;
     const { success, result } = await window.electronAPI.downloadArea(p);
 
     console.log("🚀 ~ downloadTiles ~ job:", result);
@@ -130,10 +149,10 @@ async function downloadTiles() {
       tileTask.value = result;
     }
   } catch (error) {
+    loading.value = false;
     console.error("启动下载失败:", error);
     alert(`下载失败: ${error.message}`);
   } finally {
-    isDownloading.value = false;
   }
 }
 
@@ -145,37 +164,28 @@ const cascaderProps = {
 };
 const areaRef = ref(null);
 
-const getAreaCode = ref([]);
-
 watch(
   () => areaCode.value,
   (newCode, oldCode) => {
     const result = getAreaFullPath(flatAreaList, newCode);
-    getAreaCode.value = result;
+    tilesConfig.value.currentAreaCode = result;
   },
   { immediate: true }
 );
 
 const handleChangeCode = (value) => {
   const code = value[value.length - 1];
-
   mapStore.$patch({
     areaCode: code,
   });
-
   areaRef.value?.togglePopperVisible();
 };
-const marks = ref({
-  1: "Min",
-  10: "10",
-  20: "Max",
-});
 
-const storagePath = ref("");
 const openFolder = async () => {
-  const path = await window.electronAPI.selectFolder();
+  const prePath = tilesConfig.value.storagePath || "";
+  const path = await window.electronAPI.selectFolder(prePath);
   if (path) {
-    storagePath.value = path;
+    tilesConfig.value.storagePath = path;
   }
 };
 </script>
@@ -188,7 +198,7 @@ const openFolder = async () => {
       </div>
       <el-cascader
         ref="areaRef"
-        v-model="getAreaCode"
+        v-model="tilesConfig.currentAreaCode"
         :options="areaList"
         :props="cascaderProps"
         @change="handleChangeCode"
@@ -198,25 +208,35 @@ const openFolder = async () => {
     <div class="form-item">
       <div class="form-item-header">
         <div class="step-number">2</div>
-        <label for="">{{ `缩放级别（${zoom[0]} ~ ${zoom[1]})` }}</label>
+        <label for="">{{
+          `缩放级别（${tilesConfig.zoom[0]} ~ ${tilesConfig.zoom[1]})`
+        }}</label>
       </div>
       <el-slider
-        v-model="zoom"
+        v-model="tilesConfig.zoom"
         range
         show-stops
         :max="20"
         :min="1"
-        :marks="marks"
+        :marks="ZOOM_MARKS"
       />
     </div>
     <div class="form-item">
       <div class="form-item-header">
         <div class="step-number">3</div>
-        <label for="">级别设置模式</label>
+        <label for="">下载级别设置</label>
       </div>
-      <el-radio-group v-model="downloadMode" size="default">
-        <el-radio label="single" value="single">下载最大</el-radio>
-        <el-radio label="multi" value="multi">下载多级别</el-radio>
+      <el-radio-group v-model="tilesConfig.mode" size="default">
+        <el-radio
+          :label="DOWNLOAD_LEVEL_MODES.SINGLE"
+          :value="DOWNLOAD_LEVEL_MODES.SINGLE"
+          >只下载最大级别</el-radio
+        >
+        <el-radio
+          :label="DOWNLOAD_LEVEL_MODES.MULTI"
+          :value="DOWNLOAD_LEVEL_MODES.MULTI"
+          >下载最小到最大级别</el-radio
+        >
       </el-radio-group>
     </div>
     <div class="form-item">
@@ -226,36 +246,13 @@ const openFolder = async () => {
       </div>
       <div>
         <el-button id="selectBtn" @click="openFolder">选择目录</el-button>
-        <p class="path">{{ storagePath }}</p>
+        <p class="path" :title="tilesConfig.storagePath">
+          {{ tilesConfig.storagePath }}
+        </p>
       </div>
     </div>
     <div class="form-item">
-      <el-button type="primary" @click="downloadTiles" :disabled="isDownloading"
-        >开始下载</el-button
-      >
-    </div>
-    <div class="job-status">
-      <h3>状态: {{ taskInfo.status }}</h3>
-      <div>
-        <p>总计：{{ tileTask.total }}</p>
-        <p>已下载：{{ completed }}</p>
-      </div>
-      <div class="progress-ring">
-        <el-progress
-          type="circle"
-          :percentage="
-            completed ? Math.floor((completed * 100) / tileTask.total) : 100
-          "
-        />
-      </div>
-      <div>
-        <div class="worker-task" v-for="task in workerTasks">
-          <p>{{ task?.name }} {{ task?.completed }}/{{ task?.chunkSize }}</p>
-          <el-progress
-            :percentage="Math.floor((task?.completed * 100) / task?.chunkSize)"
-          ></el-progress>
-        </div>
-      </div>
+      <el-button type="primary" @click="handleDownload">开始下载</el-button>
     </div>
   </div>
 </template>
@@ -308,11 +305,12 @@ label {
   margin-bottom: 4px;
   font-weight: 500;
   font-size: 20px;
+  margin-left: -8px;
 }
 
 .form-item {
   margin-left: 20px;
-  margin-bottom: 25px;
+  margin-bottom: 35px;
   display: flex;
   flex-direction: column;
 }
@@ -321,15 +319,6 @@ label {
   margin-left: -20px;
   display: flex;
   align-items: center;
-}
-.job-status {
-  margin-top: 20px;
-}
-
-.stats {
-  display: flex;
-  gap: 15px;
-  margin-top: 10px;
-  font-size: 14px;
+  margin-bottom: 10px;
 }
 </style>

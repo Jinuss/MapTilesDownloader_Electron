@@ -1,5 +1,5 @@
 <script setup>
-import Panel from "./components/Panel.vue";
+import Panel from "./components/RightPanel.vue";
 import BaseMap from "./components/BaseMap.vue";
 </script>
 <template>

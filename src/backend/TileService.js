@@ -10,10 +10,11 @@ class TileService extends EventEmitter {
     super();
 
     // 解决核心错误：使用传入的用户数据路径
-    this.storageDir = path.join(userDataPath, 'tiles');
+    this.storageDir = path.join(userDataPath, '');
 
     // 确保存储目录存在
     fs.ensureDirSync(this.storageDir);
+    
     console.log(`瓦片默认存储目录: ${this.storageDir}`);
 
     this.workerPool = {};

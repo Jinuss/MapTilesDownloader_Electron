@@ -97,12 +97,19 @@ app.whenReady().then(() => {
   })
 
   // 处理选择文件夹请求
-  ipcMain.handle('select-folder', async () => {
+  ipcMain.handle('select-folder', async (event, path) => {
     const result = await dialog.showOpenDialog({
-      properties: ['openDirectory']
+      properties: ['openDirectory'],
+      defaultPath: path
     })
     return result.filePaths[0] || null
   })
+
+  // 处理通知默认存储目录
+  ipcMain.handle('get-default-folder', () => {
+    return tileService.storageDir
+  })
+
 
   // 处理应用关闭
   app.on('before-quit', () => {

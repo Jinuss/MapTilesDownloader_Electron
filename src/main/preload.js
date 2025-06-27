@@ -31,6 +31,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onJobUpdate: (callback) => ipcRenderer.on('tile-job-update', (event, data) => callback(data)),
 
 
+  // 打开目录
+  openFolder: (path) => ipcRenderer.invoke('open-folder', path),
+
   // 选择目录
-  selectFolder: () => ipcRenderer.invoke('select-folder')
+  selectFolder: (path) => ipcRenderer.invoke('select-folder', path),
+
+  // 获取默认下载目录
+  getDefaultFolder: () => ipcRenderer.invoke('get-default-folder')
 });
