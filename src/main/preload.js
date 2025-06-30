@@ -38,5 +38,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   selectFolder: (path) => ipcRenderer.invoke('select-folder', path),
 
   // 获取默认下载目录
-  getDefaultFolder: () => ipcRenderer.invoke('get-default-folder')
+  getDefaultFolder: () => ipcRenderer.invoke('get-default-folder'),
+
+  //计算瓦片
+  calculateTiles: (options) => ipcRenderer.invoke('calculate-tiles', options),
 });

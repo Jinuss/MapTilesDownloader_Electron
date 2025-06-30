@@ -14,7 +14,7 @@ class TileService extends EventEmitter {
 
     // 确保存储目录存在
     fs.ensureDirSync(this.storageDir);
-    
+
     console.log(`瓦片默认存储目录: ${this.storageDir}`);
 
     this.workerPool = {};
@@ -228,7 +228,7 @@ class TileService extends EventEmitter {
   }
 
   // 创建下载任务
-  createDownloadJob(options) {
+  getTiles(options) {
     return new Promise(async (resolve, reject) => {
       try {
         const jobId = `job-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
@@ -236,46 +236,53 @@ class TileService extends EventEmitter {
           jobId,
           type: 'task',
           status: "",
+          tiles: [],
+          total: 0
         }
         // 计算瓦片
         console.log("开始计算瓦片")
-        taskInfo.status = '计算瓦片中'
-        this.emit('update-task-info', taskInfo)
         const resp = await calculateTiles(options);
-        const tiles = resp.data;
+        console.log("完成瓦片计算")
+        taskInfo.tiles = resp.data;
         taskInfo.status = '完成瓦片计算';
-        this.emit('update-task-info', taskInfo)
+        taskInfo.total = resp.data.length;
+        resolve(taskInfo);
         const jobInfo = {
+          total: taskInfo.total,
           jobId,
-          options,
-          status: '完成瓦片计算',
-          tiles,
-          total: tiles.length,
-          startTime: Date.now(),
-          progress: 0,
-          downloaded: 0,
-          errors: 0,
-
+          tiles: taskInfo.tiles,
+          status: "开始下载任务",
           tasksAssigned: 0,        // 已分配的任务数
           tasksCompleted: 0,        // 已完成的任务数
           allocatedTiles: 0,        // 已分配的瓦片数
           perWorkerChunkSize: 0     // 每个工作线程分配的子集大小
-        };
+        }
 
-        resolve({ jobId: jobInfo.jobId, total: jobInfo.total, tiles: jobInfo.tiles, status: jobInfo.status })
-        // 计算每个工作线程的瓦片分配大小
-        // this.calculateJobDistribution(jobInfo)
-        // this.activeJobs.set(jobId, jobInfo)
-        // this.processJob(jobInfo)
+        // 0.5s后开始下载任务
+        setTimeout(() => {
+          this.activeJobs.set(jobId, jobInfo)
+          this.emit('update-task-info', jobInfo)
+          this.startTask(jobInfo)
+        }, 500)
+
+        return;
       } catch (error) {
-        console.log("🚀 ~ TileService ~ return new Promise ~ error:", error)
         reject(error);
       }
     });
   }
 
+  startTask(jobInfo) {
+    return;
+    // 计算每个工作线程的瓦片分配大小
+    this.calculateJobDistribution(jobInfo)
+    // 分发任务  
+    this.processJob(jobInfo)
+  }
+
   // 计算作业如何分配到各工作线程
   calculateJobDistribution(jobInfo) {
+    jobInfo.status = "计算每个线程处理瓦片大小"
     // 计算每个工作线程应处理的瓦片数
     // 确保每个线程至少处理1个瓦片
     jobInfo.perWorkerChunkSize = Math.max(1, Math.ceil(jobInfo.total / this.maxConcurrency));
@@ -286,17 +293,14 @@ class TileService extends EventEmitter {
     jobInfo.allocatedTiles = 0;
 
     console.log(`[${jobInfo.jobId}] 作业分配: ${this.maxConcurrency} 工作线程, 每线程处理 ${jobInfo.perWorkerChunkSize} 瓦片`);
+    this.emit('update-task-info', jobInfo)
   }
 
   // 处理单个作业-分发给多个工作线程
   processJob(jobInfo) {
     // 更新作业状态
-    jobInfo.status = '分发任务';
-    this.emit('job-update', {
-      jobId: jobInfo.jobId,
-      status: jobInfo.status
-    });
-
+    jobInfo.status = '开始分发任务';
+    this.emit('update-task-info', jobInfo)
     // 尽可能分配瓦片给空闲工作线程
     this.assignTilesToWorker(jobInfo);
   }

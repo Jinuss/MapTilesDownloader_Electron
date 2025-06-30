@@ -3,7 +3,7 @@ import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import folder from "@/assets/folder.png";
 import { areaList } from "@/lib/areaCode";
-import { useMapStore } from "@/stores";
+import { useMapStore, useDownloadStore } from "@/stores";
 import { ZOOM_MARKS, DOWNLOAD_LEVEL_MODES, ZOOM } from "@/const";
 import { storeToRefs } from "pinia";
 import {
@@ -13,10 +13,12 @@ import {
   getWrappedUrlByLayerType,
 } from "@/util/index";
 import { ElMessage } from "element-plus";
+import { ELECTRON_APIS } from "@/Channel";
 
 const flatAreaList = flattenTree(areaList);
 
 const mapStore = useMapStore();
+const downloadStore = useDownloadStore();
 
 const { areaCode, geoJson } = storeToRefs(mapStore);
 
@@ -27,54 +29,38 @@ const tilesConfig = ref({
   storagePath: "",
 });
 
-// 瓦片任务：总任务
-const tileTask = ref({
-  total: 0,
-  tiles: [],
-  jobId: null,
-  status: "",
+const taskChannel = ref(null);
+
+const props = defineProps({
+  channel: {
+    type: Object || null,
+    default: null,
+  },
 });
 
-const workerTasks = ref({});
+watch(
+  () => props.channel,
+  (newChannel) => {
+    taskChannel.value = newChannel;
+    if (newChannel) {
+      getDefaultStorageDir();
+    }
+  },
+  {
+    immediate: true,
+  }
+);
 
-const taskInfo = ref({
-  status: "",
-});
-
+const getChannel = () => {
+  return taskChannel.value || {};
+};
 const getDefaultStorageDir = async () => {
-  const dir = await window.electronAPI.getDefaultFolder();
+  const channel = getChannel();
+  const dir = await channel.keyToEvent(ELECTRON_APIS.GET_DEFAULT_FOLDER);
   if (dir) {
     tilesConfig.value.storagePath = dir;
   }
 };
-
-onMounted(() => {
-  getDefaultStorageDir();
-
-  // 监听任务信息
-  window.electronAPI?.onTaskInfoUpdate((data) => {
-    console.log("🚀 ~ window.electronAPI?.onTaskInfoUpdate ~ data:", data);
-    taskInfo.value = data;
-  });
-  // 监听线程任务分配
-  window.electronAPI?.onWorkerTaskAssigned((data) => {
-    console.log("🚀 ~ window.electronAPI?.onWorkerTaskAssigned ~ data:", data);
-    const { workerId } = data;
-    workerTasks.value = {
-      ...workerTasks.value,
-      [workerId]: { ...data, name: `子任务${workerId + 1}` },
-    };
-  });
-  // 监听线程任务进度
-  window.electronAPI?.onWorkerTaskProgress((data) => {
-    console.log("🚀 ~ window.electronAPI?.onWorkerTaskProgress ~ data:", data);
-    const { workerId } = data;
-    workerTasks.value = {
-      ...workerTasks.value,
-      [workerId]: { ...workerTasks.value[workerId], ...data },
-    };
-  });
-});
 
 const checkDownloadConfig = () => {
   if (!geoJson.value) {
@@ -107,6 +93,7 @@ const handleDownload = async () => {
 
 // 获取瓦片配置
 const getTilesConfig = () => {
+  const visibleLayers = mapStore.visibleLayerName;
   const layer = getLayerByName(visibleLayers[0]);
   const { urlTemplate, subdomains } = getWrappedUrlByLayerType(
     layer.url,
@@ -142,17 +129,22 @@ async function downloadTiles() {
     }
     console.log("🚀 ~ downloadTiles ~ p:", p);
 
-    const { success, result } = await window.electronAPI.downloadArea(p);
-
-    console.log("🚀 ~ downloadTiles ~ job:", result);
-
-    if (success) {
-      tileTask.value = result;
+    const channel = getChannel();
+    const { success, result } = await channel.keyToEvent(
+      ELECTRON_APIS.GET_TILES,
+      p
+    );
+    if (!success) {
+      ElMessage.error(result);
     }
+    downloadStore.$patch({
+      downloadParams: p,
+    });
+    console.log("🚀 ~ downloadTiles ~ job:", result);
+    downloadStore.start();
   } catch (error) {
     loading.value = false;
     console.error("启动下载失败:", error);
-    alert(`下载失败: ${error.message}`);
   } finally {
   }
 }
@@ -184,7 +176,8 @@ const handleChangeCode = (value) => {
 
 const openFolder = async () => {
   const prePath = tilesConfig.value.storagePath || "";
-  const path = await window.electronAPI.selectFolder(prePath);
+  const channel = getChannel();
+  const path = await channel.keyToEvent(ELECTRON_APIS.SELECT_FOLDER, prePath);
   if (path) {
     tilesConfig.value.storagePath = path;
   }
@@ -258,12 +251,6 @@ const openFolder = async () => {
   </div>
 </template>
 <style scoped>
-.progress-ring {
-  display: flex;
-  justify-content: center;
-  align-content: center;
-  align-items: center;
-}
 .path-container {
   display: flex;
   border-bottom: 1px solid #ccc;

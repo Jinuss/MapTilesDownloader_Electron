@@ -1,6 +1,8 @@
 <script setup>
-import L from "leaflet";
-import "leaflet/dist/leaflet.css";
+import { ELECTRON_APIS } from "@/Channel";
+
+
+
 
 // 瓦片任务：总任务
 const tileTask = ref({
