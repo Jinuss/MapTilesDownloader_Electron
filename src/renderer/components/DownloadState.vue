@@ -1,61 +1,46 @@
 <script setup>
 import { ELECTRON_APIS } from "@/Channel";
 
+const taskChannel = ref(null);
 
-
-
-// 瓦片任务：总任务
-const tileTask = ref({
-  total: 0,
-  tiles: [],
-  jobId: null,
-  status: "",
+const props = defineProps({
+  channel: {
+    type: Object || null,
+    default: null,
+  },
 });
 
-const workerTasks = ref({});
-
-const completed = ref(0);
-
-watch(
-  () => workerTasks.value,
-  (object) => {
-    let count = 0;
-    for (const key in object) {
-      count += object[key]?.completed;
-    }
-    completed.value = count;
-  }
-);
+const getChannel = () => {
+  return taskChannel.value || {};
+};
 
 const taskInfo = ref({
   status: "",
+  total: 0,
+  completed: 0,
+  skip: 0,
+  fail: 0,
 });
 
-onMounted(() => {
-  // 监听任务信息
-  window.electronAPI?.onTaskInfoUpdate((data) => {
-    console.log("🚀 ~ window.electronAPI?.onTaskInfoUpdate ~ data:", data);
-    taskInfo.value = data;
-  });
-  // 监听线程任务分配
-  window.electronAPI?.onWorkerTaskAssigned((data) => {
-    console.log("🚀 ~ window.electronAPI?.onWorkerTaskAssigned ~ data:", data);
-    const { workerId } = data;
-    workerTasks.value = {
-      ...workerTasks.value,
-      [workerId]: { ...data, name: `子任务${workerId + 1}` },
-    };
-  });
-  // 监听线程任务进度
-  window.electronAPI?.onWorkerTaskProgress((data) => {
-    console.log("🚀 ~ window.electronAPI?.onWorkerTaskProgress ~ data:", data);
-    const { workerId } = data;
-    workerTasks.value = {
-      ...workerTasks.value,
-      [workerId]: { ...workerTasks.value[workerId], ...data },
-    };
-  });
-});
+const initChannelListener = () => {
+  const channel = getChannel();
+  if (channel && channel.keyToListenEvent) {
+    channel.keyToListenEvent(ELECTRON_APIS.ON_TASK_UPDATE, (data) => {
+      taskInfo.value = { ...data, ...taskInfo.value };
+    });
+  }
+};
+
+watch(
+  () => props.channel,
+  (newChannel) => {
+    taskChannel.value = newChannel;
+    initChannelListener();
+  },
+  {
+    immediate: true,
+  }
+);
 </script>
 <template>
   <div class="panel">
@@ -64,26 +49,20 @@ onMounted(() => {
       <div class="label">状态：{{ taskInfo.status }}</div>
     </div>
     <div class="count">
-      <p>总计：{{ tileTask.total }}</p>
-      <p>完成：{{ completed }}</p>
-      <p>跳过：{{ tileTask.skip }}</p>
-      <p>失败：{{ tileTask.fail }}</p>
+      <p>总计：{{ taskInfo.total }}</p>
+      <p>完成：{{ taskInfo.completed }}</p>
+      <p>跳过：{{ taskInfo.skip }}</p>
+      <p>失败：{{ taskInfo.fail }}</p>
     </div>
     <div class="progress-ring">
       <el-progress
         type="circle"
         :percentage="
-          completed ? Math.floor((completed * 100) / tileTask.total) : 100
+          taskInfo.completed
+            ? Math.floor((taskInfo.completed * 100) / taskInfo.total)
+            : 0
         "
       />
-    </div>
-    <div>
-      <div class="worker-task" v-for="task in workerTasks">
-        <p>{{ task?.name }} {{ task?.completed }}/{{ task?.chunkSize }}</p>
-        <el-progress
-          :percentage="Math.floor((task?.completed * 100) / task?.chunkSize)"
-        ></el-progress>
-      </div>
     </div>
   </div>
 </template>

@@ -13,7 +13,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     callback(data)
   }),
   // 监听任务信息更新
-  onTaskInfoUpdate: (callback) => ipcRenderer.on('update-task-info', (event, data) => {
+  onTaskUpdate: (callback) => ipcRenderer.on('update-task', (event, data) => {
     callback(data)
   }),
 

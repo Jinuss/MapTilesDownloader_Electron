@@ -54,6 +54,7 @@ watch(
 const getChannel = () => {
   return taskChannel.value || {};
 };
+
 const getDefaultStorageDir = async () => {
   const channel = getChannel();
   const dir = await channel.keyToEvent(ELECTRON_APIS.GET_DEFAULT_FOLDER);

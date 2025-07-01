@@ -8,7 +8,7 @@
     "start": "vite --config src/renderer/vite.config.js",
     "build": "electron-builder",
     "pack": "electron-builder --dir",
-    "dist": "electron-builder -w",
+    "dist": "electron-builder -w nsis",
     "watch": "concurrently \"npm run watch:renderer\" \"npm run watch:backend\"",
     "watch:renderer": "vite build --watch",
     "watch:backend": "nodemon --watch src/backend --exec electron .",
@@ -47,7 +47,7 @@
     },
     "win": {
       "target": "nsis",
-      "icon": "build/icon.ico",
+      "icon": "src/build/map.ico",
       "requestedExecutionLevel": "asInvoker"
     },
     "nsis": {

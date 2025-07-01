@@ -3,6 +3,7 @@ export const ELECTRON_APIS = {
     GET_DEFAULT_FOLDER: "getDefaultFolder",// 获取默认目录
     SELECT_FOLDER: "selectFolder",// 打开目录选择器
     GET_TILES: "calculateTiles", // 获取瓦片
+    ON_TASK_UPDATE:"onTaskUpdate",//任务更新      
 }
 
 export class TaskChannel {
@@ -23,6 +24,15 @@ export class TaskChannel {
         if (apis[key]) {
             const resp = await apis[key](p)
             return resp
+        } else {
+            throw new Error(`未定义Electron API- ${key}`)
+        }
+    }
+    
+    async keyToListenEvent(key, callback) {
+        const apis = this.getElectronAPIs()
+        if (apis[key]) {
+           apis[key](callback)
         } else {
             throw new Error(`未定义Electron API- ${key}`)
         }

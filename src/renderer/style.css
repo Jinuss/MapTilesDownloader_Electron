@@ -34,3 +34,6 @@
 .leaflet-right {
     right: 20px !important; 
 }
+.leaflet-container .leaflet-control-attribution{
+  display: none;
+}

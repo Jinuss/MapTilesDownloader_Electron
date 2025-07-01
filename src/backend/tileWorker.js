@@ -2,6 +2,9 @@ const { parentPort, workerData } = require('worker_threads');
 const path = require('path');
 const fs = require('fs-extra');
 const axios = require('axios');
+const { generateTileUrl, formatMilliseconds } = require('./Utils.js');
+const { MESSAGE_TYPE } = require('./const.js');
+
 
 // 获取存储目录和workerId
 const storageDir = workerData?.storageDir;
@@ -14,7 +17,7 @@ const fileCache = new Map();
 function log(message, level = 'info') {
   if (parentPort) {
     parentPort.postMessage({
-      type: 'log',
+      type: MESSAGE_TYPE.WORKER_LOG,
       workerId,
       level,
       message,
@@ -34,26 +37,6 @@ async function fileExists(filePath) {
   return exists;
 }
 
-// 生成瓦片URL
-function generateTileUrl(template, domains, z, x, y) {
-  let url = template;
-
-  // 处理子域轮询
-  if (template.includes('{s}')) {
-    const subdomains = domains ? domains.split('') : ['a', 'b', 'c'];
-    const subdomain = subdomains[Math.floor(Math.random() * subdomains.length)];
-    url = url.replace('{s}', subdomain);
-  }
-
-  // 替换变量
-  url = url
-    .replace(/\{z\}/g, z)
-    .replace(/\{x\}/g, x)
-    .replace(/\{y\}/g, y)
-    .replace(/\{-y\}/g, (Math.pow(2, z) - 1 - y));
-
-  return url;
-}
 
 // 下载瓦片
 async function downloadTile(url, maxRetries = 3, retryDelay = 1000) {
@@ -108,23 +91,9 @@ async function saveTile(filePath, buffer) {
     return false;
   }
 }
-function formatMilliseconds(ms) {
-  // 计算各个时间单位
-  const seconds = Math.floor(ms / 1000);
-  const minutes = Math.floor(seconds / 60);
-  const hours = Math.floor(minutes / 60);
 
-  // 获取剩余时间
-  const remainingSeconds = seconds % 60;
-  const remainingMinutes = minutes % 60;
 
-  // 格式化为两位数
-  const formattedHours = hours.toString().padStart(2, '0');
-  const formattedMinutes = remainingMinutes.toString().padStart(2, '0');
-  const formattedSeconds = remainingSeconds.toString().padStart(2, '0');
 
-  return `${formattedHours}:${formattedMinutes}:${formattedSeconds}`;
-}
 // 消息处理
 parentPort.on('message', async (msg) => {
   if (msg.type !== 'download-chunk') return;
@@ -133,23 +102,27 @@ parentPort.on('message', async (msg) => {
   const startTime = Date.now();
   const totalTiles = tiles.length;
 
-  log(`开始任务 ${jobId}: ${totalTiles} 个瓦片`, 'info');
+  log(`开始线程任务 ${workerId}: ${totalTiles} 个瓦片`, 'info');
 
-  let downloadedCount = 0;
-  let skippedCount = 0;
-  let errorCount = 0;
+  // 定义消息结构：非日志类
+  let messageData = {
+    jobId, // 任务Id
+    workerId, // 线程id
+    type: "",// 消息类型
+    status: "",//描述
+    // tiles, // 分配的瓦片
+    chunkSize: totalTiles,// 分配瓦片的大小
+    completed: 0, //下载成功
+    fail: 0, // 下载失败
+    skip: 0, // 跳过
+  }
 
   try {
     // 报告任务开始
-    parentPort.postMessage({
-      type: 'progress',
-      jobId,
-      workerId,
-      status: `线程任务${(workerId + 1)}开始`,
-      chunkSize: totalTiles,
-      completed: 0,
-      errors: 0
-    });
+    messageData.type = MESSAGE_TYPE.WORKER_PROGRESS;
+    messageData.status = `线程任务${(workerId + 1)}开始`;
+
+    parentPort.postMessage(messageData);
 
     for (let i = 0; i < totalTiles; i++) {
       const tile = tiles[i];
@@ -162,7 +135,8 @@ parentPort.on('message', async (msg) => {
 
       // 检查瓦片是否已存在
       if (await fileExists(tilePath)) {
-        skippedCount++;
+        log(`瓦片已存在: ${tilePath}`, 'warn')
+        messageData.skip++;
         continue;
       }
 
@@ -176,29 +150,21 @@ parentPort.on('message', async (msg) => {
         // 保存瓦片
         const saveResult = await saveTile(tilePath, result.buffer);
         if (saveResult) {
-          downloadedCount++;
+          messageData.completed++;
         } else {
-          errorCount++;
+          messageData.fail++;
         }
       } else if (result.status === 'not_found') {
-        skippedCount++;
+        log(`瓦片找不到: ${tilePath}`, 'warn')
+        messageData.skip++;
       } else {
-        errorCount++;
+        messageData.fail++;
       }
       // 报告进度
       if (i % 10 === 0 || i === totalTiles - 1) {
-        parentPort.postMessage({
-          type: 'progress',
-          jobId,
-          workerId,
-          z, x, y,
-          status: `线程任务${(workerId + 1)}下载${z, x, y}中`,
-          index: i,
-          chunkSize: totalTiles,
-          completed: downloadedCount,
-          skipped: skippedCount,
-          errors: errorCount
-        });
+        messageData.type = MESSAGE_TYPE.WORKER_PROGRESS;
+        messageData.status = `线程任务${(workerId + 1)}下载${z}/${x}/${y}中`;
+        parentPort.postMessage(messageData);
       }
       // 避免内存溢出
       if (i % 100 === 0) {
@@ -207,34 +173,20 @@ parentPort.on('message', async (msg) => {
     }
 
     // 任务完成
-    log(`线程任务 ${(workerId + 1)} 完成: ${downloadedCount} 下载, ${skippedCount} 跳过, ${errorCount} 失败`, 'info');
+    log(`线程任务 ${(workerId + 1)} 完成: ${messageData.completed} 下载, ${messageData.skip} 跳过, ${messageData.fail} 失败`, 'info');
 
-    parentPort.postMessage({
-      type: 'chunk-completed',
-      jobId,
-      workerId,
-      status: `${(workerId + 1)}完成`,
-      completed: downloadedCount,
-      skippedCount,
-      errorCount,
-      startTime,
-      endTime: Date.now(),
-      duration: formatMilliseconds(Date.now() - startTime)
-    });
+    messageData.type = MESSAGE_TYPE.WORKER_COMPLETED;
+    messageData.status = `线程任务${(workerId + 1)}完成`;
+    messageData.endTime = Date.now();
+    messageData.duration = formatMilliseconds(Date.now() - startTime)
+
+    parentPort.postMessage(messageData);
   } catch (error) {
     // 任务失败
     log(`任务 ${jobId} 失败: ${error.message}`, 'error');
-
-    parentPort.postMessage({
-      type: 'error',
-      jobId,
-      status: `线程${(workerId + 1)}失败`,
-      workerId,
-      error: error.message,
-      completed: downloadedCount,
-      skippedCount,
-      errorCount
-    });
+    messageData.type = MESSAGE_TYPE.WORKER_ERROR;
+    messageData.status = `线程${(workerId + 1)}失败`;
+    parentPort.postMessage(messageData);
   } finally {
     // 清理资源
     fileCache.clear();
@@ -246,7 +198,7 @@ process.on('unhandledRejection', (reason, promise) => {
   log(`未处理的Rejection: ${reason}`, 'error');
   if (parentPort) {
     parentPort.postMessage({
-      type: 'error',
+      type: MESSAGE_TYPE.WORKER_ERROR,
       error: `未处理的Rejection: ${reason}`
     });
   }
@@ -256,7 +208,7 @@ process.on('uncaughtException', (error) => {
   log(`未捕获的异常: ${error.message}\n${error.stack}`, 'error');
   if (parentPort) {
     parentPort.postMessage({
-      type: 'error',
+      type: MESSAGE_TYPE.WORKER_ERROR,
       error: `未捕获的异常: ${error.message}`
     });
   }

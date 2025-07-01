@@ -4,19 +4,22 @@ const { Worker } = require('worker_threads');
 const EventEmitter = require('events');
 const os = require('os');
 const { calculateTiles } = require('./Utils.js');
+const Logger = require('./log.js')
 
 class TileService extends EventEmitter {
   constructor(defaultDownloadPath) {
     super();
-
+    this.logger = new Logger({
+      logPath: defaultDownloadPath,
+      fileName: 'log.txt',
+    })
     // 解决核心错误：使用传入的用户数据路径
     this.storageDir = path.join(defaultDownloadPath, '');
 
     // 确保存储目录存在
     fs.ensureDirSync(this.storageDir);
 
-    console.log(`瓦片默认存储目录: ${this.storageDir}`);
-
+    this.logger.info(`瓦片默认存储目录: ${this.storageDir}`);
     this.workerPool = {};
     this.activeDownloads = 0;
     this.maxConcurrency = os.cpus().length; // 根据CPU核心数设置并发数
@@ -37,7 +40,7 @@ class TileService extends EventEmitter {
         throw new Error(`工作线程脚本不存在: ${this.workerScriptPath}`);
       }
 
-      console.log(`正在初始化工作线程池 (${this.maxConcurrency} workers)...`);
+      this.logger.info(`正在初始化工作线程池 (${this.maxConcurrency} workers)...`);
 
       for (let i = 0; i < this.maxConcurrency; i++) {
         const worker = new Worker(this.workerScriptPath, {
@@ -60,9 +63,9 @@ class TileService extends EventEmitter {
         };
       }
 
-      console.log(`工作线程池初始化成功`);
+      this.logger.info(`工作线程池初始化成功`);
     } catch (error) {
-      console.error('初始化工作线程池失败:', error);
+      this.logger.error('初始化工作线程池失败:', error);
       this.emit('error', { type: 'init', error: error.message });
     }
   }
@@ -71,6 +74,9 @@ class TileService extends EventEmitter {
     if (!msg || !msg.type) return;
 
     try {
+      if (msg.type === 'log') {
+        this.logger.info(msg.message)
+      }
       if (msg.type === 'progress') {
         // 转发进度更新
         this.emit('chunk-progress', {
@@ -121,7 +127,7 @@ class TileService extends EventEmitter {
         }
       }
     } catch (error) {
-      console.error(`处理工作线程 ${workerId} 消息失败:`, error);
+      this.logger.error(`处理工作线程 ${workerId} 消息失败:`, error);
       this.emit('error', {
         type: 'message',
         workerId,
@@ -153,7 +159,7 @@ class TileService extends EventEmitter {
   }
 
   handleWorkerError(err, workerId) {
-    console.error(`工作线程 ${workerId} 错误:`, err);
+    this.logger.error(`工作线程 ${workerId} 错误:`, err);
     this.emit('error', {
       type: 'worker',
       workerId,
@@ -166,7 +172,7 @@ class TileService extends EventEmitter {
 
   handleWorkerExit(code, workerId) {
     if (code !== 0) {
-      console.error(`工作线程 ${workerId} 异常退出 (代码 ${code})`);
+      this.logger.error(`工作线程 ${workerId} 异常退出 (代码 ${code})`);
       this.emit('error', {
         type: 'exit',
         workerId,
@@ -176,13 +182,13 @@ class TileService extends EventEmitter {
       // 重启工作线程
       this.restartWorker(workerId);
     } else {
-      console.log(`工作线程 ${workerId} 正常退出`);
+      this.logger.info(`工作线程 ${workerId} 正常退出`);
     }
   }
 
   restartWorker(workerId) {
     try {
-      console.log(`重启工作线程 ${workerId}...`);
+      this.logger.info(`重启工作线程 ${workerId}...`);
 
       // 终止旧工作线程
       if (this.workerPool[workerId]?.worker) {
@@ -209,7 +215,7 @@ class TileService extends EventEmitter {
         currentJobId: null
       };
 
-      console.log(`工作线程 ${workerId} 已重启`);
+      this.logger.info(`工作线程 ${workerId} 已重启`);
 
       // 检查是否有任务需要恢复
       if (this.workerPool[workerId].currentJobId) {
@@ -218,7 +224,7 @@ class TileService extends EventEmitter {
         // this.processQueue();
       }
     } catch (error) {
-      console.error(`重启工作线程 ${workerId} 失败:`, error);
+      this.logger.error(`重启工作线程 ${workerId} 失败:`, error);
       this.emit('error', {
         type: 'restart',
         workerId,
@@ -240,28 +246,32 @@ class TileService extends EventEmitter {
           total: 0
         }
         // 计算瓦片
-        console.log("开始计算瓦片")
+        this.logger.info("开始计算瓦片")
         const resp = await calculateTiles(options);
-        console.log("完成瓦片计算")
+        this.logger.info("完成瓦片计算")
         taskInfo.tiles = resp.data;
         taskInfo.status = '完成瓦片计算';
         taskInfo.total = resp.data.length;
         resolve(taskInfo);
         const jobInfo = {
           total: taskInfo.total,
+          completed: 0,
+          fail: 0,
+          skip: 0,
           jobId,
           tiles: taskInfo.tiles,
           status: "开始下载任务",
           tasksAssigned: 0,        // 已分配的任务数
           tasksCompleted: 0,        // 已完成的任务数
           allocatedTiles: 0,        // 已分配的瓦片数
-          perWorkerChunkSize: 0     // 每个工作线程分配的子集大小
+          perWorkerChunkSize: 0,     // 每个工作线程分配的子集大小
+          options
         }
 
         // 0.5s后开始下载任务
         setTimeout(() => {
           this.activeJobs.set(jobId, jobInfo)
-          this.emit('update-task-info', jobInfo)
+          this.emit('update-task', jobInfo)
           this.startTask(jobInfo)
         }, 500)
 
@@ -273,7 +283,7 @@ class TileService extends EventEmitter {
   }
 
   startTask(jobInfo) {
-    return;
+    // return;
     // 计算每个工作线程的瓦片分配大小
     this.calculateJobDistribution(jobInfo)
     // 分发任务  
@@ -292,15 +302,15 @@ class TileService extends EventEmitter {
     jobInfo.tasksCompleted = 0;
     jobInfo.allocatedTiles = 0;
 
-    console.log(`[${jobInfo.jobId}] 作业分配: ${this.maxConcurrency} 工作线程, 每线程处理 ${jobInfo.perWorkerChunkSize} 瓦片`);
-    this.emit('update-task-info', jobInfo)
+    this.logger.info(`[${jobInfo.jobId}] 作业分配: ${this.maxConcurrency} 工作线程, 每线程处理 ${jobInfo.perWorkerChunkSize} 瓦片`);
+    this.emit('update-task', jobInfo)
   }
 
   // 处理单个作业-分发给多个工作线程
   processJob(jobInfo) {
     // 更新作业状态
     jobInfo.status = '开始分发任务';
-    this.emit('update-task-info', jobInfo)
+    this.emit('update-task', jobInfo)
     // 尽可能分配瓦片给空闲工作线程
     this.assignTilesToWorker(jobInfo);
   }
@@ -328,21 +338,21 @@ class TileService extends EventEmitter {
       jobInfo.allocatedTiles = endIndex;
       jobInfo.tasksAssigned++;
 
-      console.log(`分配${startIndex}~${endIndex}瓦片给工作线程${workerId}，共计${chunkSize}个瓦片`);
+      this.logger.info(`分配${startIndex}~${endIndex}瓦片给工作线程${workerId}，共计${chunkSize}个瓦片`);
     }
 
     // 如果没有分配完所有瓦片，等待空闲工作线程
     if (jobInfo.allocatedTiles < jobInfo.total) {
-      console.log(`[${jobInfo.jobId}] 等待空闲工作线程 (已分配 ${jobInfo.allocatedTiles}/${jobInfo.total})`);
+      this.logger.info(`[${jobInfo.jobId}] 等待空闲工作线程 (已分配 ${jobInfo.allocatedTiles}/${jobInfo.total})`);
     } else {
-      console.log(`[${jobInfo.jobId}] 所有瓦片已分配到工作线程`);
+      this.logger.info(`[${jobInfo.jobId}] 所有瓦片已分配到工作线程`);
     }
   }
 
   // 分配瓦片子集给特定工作线程
   assignTileChunkToWorker(jobInfo, workerId, tileChunk, chunkSize) {
     if (!this.workerPool[workerId]) {
-      console.error(`工作线程 ${workerId} 不存在，无法分配任务`);
+      this.logger.error(`工作线程 ${workerId} 不存在，无法分配任务`);
       return;
     }
 
@@ -375,7 +385,7 @@ class TileService extends EventEmitter {
         storagePath: jobInfo.options.storagePath
       });
     } catch (error) {
-      console.error(`给工作线程 ${workerId} 分配任务失败:`, error);
+      this.logger.error(`给工作线程 ${workerId} 分配任务失败:`, error);
       this.workerPool[workerId].busy = false;
       this.workerPool[workerId].currentJobId = null;
     }
@@ -396,21 +406,21 @@ class TileService extends EventEmitter {
 
   // 安全关闭所有工作线程
   shutdown() {
-    console.log('关闭瓦片服务...');
+    this.logger.info('关闭瓦片服务...');
 
     // 终止所有工作线程
     Object.values(this.workerPool).forEach(worker => {
       try {
         if (worker.worker) {
           worker.worker.terminate();
-          console.log(`工作线程 ${worker.id} 已终止`);
+          this.logger.info(`工作线程 ${worker.id} 已终止`);
         }
       } catch (error) {
-        console.error(`终止工作线程 ${worker.id} 失败:`, error);
+        this.logger.error(`终止工作线程 ${worker.id} 失败:`, error);
       }
     });
 
-    console.log('瓦片服务已关闭');
+    this.logger.info('瓦片服务已关闭');
   }
 }
 

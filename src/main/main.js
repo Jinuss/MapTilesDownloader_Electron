@@ -70,8 +70,8 @@ app.whenReady().then(() => {
 
   
   // 监听任务信息更新
-  tileService.on('update-task-info', (taskInfo) => {
-    mainWindow.webContents.send('update-task-info', taskInfo);
+  tileService.on('update-task', (taskInfo) => {
+    mainWindow.webContents.send('update-task', taskInfo);
   })
 
   // 设置IPC通信

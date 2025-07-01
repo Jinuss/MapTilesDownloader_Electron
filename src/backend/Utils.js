@@ -1,3 +1,4 @@
+// 计算瓦片
 async function calculateTiles(options) {
     return new Promise((resolve, reject) => {
         try {
@@ -91,4 +92,44 @@ async function calculateTiles(options) {
     })
 }
 
-module.exports = { calculateTiles };
+// 生成瓦片URL
+function generateTileUrl(template, domains, z, x, y) {
+    let url = template;
+
+    // 处理子域轮询
+    if (template.includes('{s}')) {
+        const subdomains = domains ? domains.split('') : ['a', 'b', 'c'];
+        const subdomain = subdomains[Math.floor(Math.random() * subdomains.length)];
+        url = url.replace('{s}', subdomain);
+    }
+
+    // 替换变量
+    url = url
+        .replace(/\{z\}/g, z)
+        .replace(/\{x\}/g, x)
+        .replace(/\{y\}/g, y)
+        .replace(/\{-y\}/g, (Math.pow(2, z) - 1 - y));
+
+    return url;
+}
+
+// 格式化时间
+function formatMilliseconds(ms) {
+    // 计算各个时间单位
+    const seconds = Math.floor(ms / 1000);
+    const minutes = Math.floor(seconds / 60);
+    const hours = Math.floor(minutes / 60);
+
+    // 获取剩余时间
+    const remainingSeconds = seconds % 60;
+    const remainingMinutes = minutes % 60;
+
+    // 格式化为两位数
+    const formattedHours = hours.toString().padStart(2, '0');
+    const formattedMinutes = remainingMinutes.toString().padStart(2, '0');
+    const formattedSeconds = remainingSeconds.toString().padStart(2, '0');
+
+    return `${formattedHours}:${formattedMinutes}:${formattedSeconds}`;
+}
+
+module.exports = { calculateTiles, generateTileUrl, formatMilliseconds };
