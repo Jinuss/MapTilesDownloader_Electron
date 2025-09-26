@@ -248,7 +248,7 @@ class TileService extends EventEmitter {
         // 计算瓦片
         this.logger.info("开始计算瓦片")
         const resp = await calculateTiles(options);
-        this.logger.info("完成瓦片计算")
+        this.logger.info(`完成瓦片计算，共计${resp.data.length}个瓦片`)
         taskInfo.tiles = resp.data;
         taskInfo.status = '完成瓦片计算';
         taskInfo.total = resp.data.length;
