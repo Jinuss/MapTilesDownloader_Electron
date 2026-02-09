@@ -30,8 +30,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // 任务更新
   onJobUpdate: (callback) => ipcRenderer.on('tile-job-update', (event, data) => callback(data)),
-
-
+  
   // 打开目录
   openFolder: (path) => ipcRenderer.invoke('open-folder', path),
 

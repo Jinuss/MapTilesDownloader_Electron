@@ -1,5 +1,12 @@
 <script setup>
+import { storeToRefs } from "pinia";
 import { ELECTRON_APIS } from "@/Channel";
+import { useDownloadStore } from "@/stores/useDownloadStore";
+
+const downloadStore = useDownloadStore();
+
+const { taskManage } = storeToRefs(downloadStore);
+console.log("🚀 ~ total:", taskManage);
 
 const taskChannel = ref(null);
 
@@ -15,8 +22,8 @@ const getChannel = () => {
 };
 
 const taskInfo = ref({
-  status: "",
-  total: 0,
+  total: taskManage.value.total,
+  status: taskManage.value.status,
   completed: 0,
   skip: 0,
   fail: 0,
@@ -26,7 +33,8 @@ const initChannelListener = () => {
   const channel = getChannel();
   if (channel && channel.keyToListenEvent) {
     channel.keyToListenEvent(ELECTRON_APIS.ON_TASK_UPDATE, (data) => {
-      taskInfo.value = { ...data, ...taskInfo.value };
+      console.log("🚀 ~ initChannelListener ~ data:", data);
+      taskInfo.value = { ...taskInfo.value, ...data };
     });
   }
 };
@@ -39,7 +47,7 @@ watch(
   },
   {
     immediate: true,
-  }
+  },
 );
 </script>
 <template>

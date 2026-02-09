@@ -48,7 +48,7 @@ watch(
   },
   {
     immediate: true,
-  }
+  },
 );
 
 const getChannel = () => {
@@ -98,7 +98,7 @@ const getTilesConfig = () => {
   const layer = getLayerByName(visibleLayers[0]);
   const { urlTemplate, subdomains } = getWrappedUrlByLayerType(
     layer.url,
-    layer.type
+    layer.type,
   );
   const bound = L.geoJSON(geoJson.value).getBounds();
 
@@ -133,13 +133,15 @@ async function downloadTiles() {
     const channel = getChannel();
     const { success, result } = await channel.keyToEvent(
       ELECTRON_APIS.GET_TILES,
-      p
+      p,
     );
     if (!success) {
       ElMessage.error(result);
+      return;
     }
     downloadStore.$patch({
       downloadParams: p,
+      taskManage: result,
     });
     console.log("🚀 ~ downloadTiles ~ job:", result);
     downloadStore.start();
@@ -164,7 +166,7 @@ watch(
     const result = getAreaFullPath(flatAreaList, newCode);
     tilesConfig.value.currentAreaCode = result;
   },
-  { immediate: true }
+  { immediate: true },
 );
 
 const handleChangeCode = (value) => {

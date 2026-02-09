@@ -1,20 +1,21 @@
-const path = require('path');
-const fs = require('fs-extra');
-const { Worker } = require('worker_threads');
-const EventEmitter = require('events');
-const os = require('os');
-const { calculateTiles } = require('./Utils.js');
-const Logger = require('./log.js')
+const path = require("path");
+const fs = require("fs-extra");
+const { Worker } = require("worker_threads");
+const EventEmitter = require("events");
+const os = require("os");
+const { calculateTiles } = require("./Utils.js");
+const Logger = require("./log.js");
+const { MESSAGE_TYPE } = require("./const.js");
 
 class TileService extends EventEmitter {
   constructor(defaultDownloadPath) {
     super();
     this.logger = new Logger({
       logPath: defaultDownloadPath,
-      fileName: 'log.txt',
-    })
+      fileName: "log.txt",
+    });
     // 解决核心错误：使用传入的用户数据路径
-    this.storageDir = path.join(defaultDownloadPath, '');
+    this.storageDir = path.join(defaultDownloadPath, "");
 
     // 确保存储目录存在
     fs.ensureDirSync(this.storageDir);
@@ -27,10 +28,19 @@ class TileService extends EventEmitter {
     this.activeJobs = new Map();
 
     // 创建 worker 源文件路径
-    this.workerScriptPath = path.join(__dirname, 'tileWorker.js');
+    this.workerScriptPath = path.join(__dirname, "tileWorker.js");
 
     // 初始化工作线程池
     this.initWorkerPool();
+
+    // 全局变量
+    this.jobInfo = {};
+  }
+  setJobInfo(info) {
+    this.jobInfo = { ...this.jobInfo, ...info };
+  }
+  getJobInfo() {
+    return this.jobInfo;
   }
 
   async initWorkerPool() {
@@ -40,33 +50,35 @@ class TileService extends EventEmitter {
         throw new Error(`工作线程脚本不存在: ${this.workerScriptPath}`);
       }
 
-      this.logger.info(`正在初始化工作线程池 (${this.maxConcurrency} workers)...`);
+      this.logger.info(
+        `正在初始化工作线程池 (${this.maxConcurrency} workers)...`,
+      );
 
       for (let i = 0; i < this.maxConcurrency; i++) {
         const worker = new Worker(this.workerScriptPath, {
           workerData: {
             storageDir: this.storageDir,
-            workerId: i
-          }
+            workerId: i,
+          },
         });
 
-        worker.on('message', (msg) => this.handleWorkerMessage(msg, i));
-        worker.on('error', (err) => this.handleWorkerError(err, i));
-        worker.on('exit', (code) => this.handleWorkerExit(code, i));
+        worker.on("message", (msg) => this.handleWorkerMessage(msg, i));
+        worker.on("error", (err) => this.handleWorkerError(err, i));
+        worker.on("exit", (code) => this.handleWorkerExit(code, i));
 
         this.workerPool[i] = {
           worker,
           busy: false,
           id: i,
           lastActivity: Date.now(),
-          currentJobId: null
+          currentJobId: null,
         };
       }
 
       this.logger.info(`工作线程池初始化成功`);
     } catch (error) {
-      this.logger.error('初始化工作线程池失败:', error);
-      this.emit('error', { type: 'init', error: error.message });
+      this.logger.error("初始化工作线程池失败:", error);
+      this.emit("error", { type: "init", error: error.message });
     }
   }
 
@@ -74,16 +86,32 @@ class TileService extends EventEmitter {
     if (!msg || !msg.type) return;
 
     try {
-      if (msg.type === 'log') {
-        this.logger.info(msg.message)
+      const { type } = msg;
+      if (msg.type === "log") {
+        this.logger.info(msg.message);
       }
-      if (msg.type === 'progress') {
+
+      // 更新前端进度
+      if (type === MESSAGE_TYPE.WORKER_PROGRESS) {
+        let info = this.getJobInfo();
+        let { skip, fail, completed } = info;
+        info = {
+          ...info,
+          status: "瓦片下载中",
+          skip: skip + msg.skip,
+          fail: fail + msg.fail,
+          completed: completed + msg.completed,
+        };
+        this.updateUI(info);
+      }
+
+      if (msg.type === "progress") {
         // 转发进度更新
-        this.emit('chunk-progress', {
+        this.emit("chunk-progress", {
           ...msg,
-          workerId
+          workerId,
         });
-      } else if (msg.type === 'chunk-completed') {
+      } else if (msg.type === "chunk-completed") {
         const { jobId, chunkDownloaded, chunkErrors, chunkStartIndex } = msg;
 
         // 更新工作线程状态
@@ -106,16 +134,16 @@ class TileService extends EventEmitter {
         // 计算作业整体进度
         jobInfo.progress = Math.min(
           100,
-          Math.round((jobInfo.downloaded / jobInfo.total) * 100)
+          Math.round((jobInfo.downloaded / jobInfo.total) * 100),
         );
 
         // 任务完成事件
-        this.emit('task-completed', {
+        this.emit("task-completed", {
           jobId,
           workerId,
           chunkDownloaded,
           chunkErrors,
-          chunkStartIndex
+          chunkStartIndex,
         });
 
         // 作业完成事件
@@ -125,14 +153,16 @@ class TileService extends EventEmitter {
           // 继续分配剩余瓦片
           this.assignTilesToWorker(jobInfo);
         }
+      } else if (msg.type === MESSAGE_TYPE.WORKER_LOG) {
+        this.logger.info(msg.message);
       }
     } catch (error) {
       this.logger.error(`处理工作线程 ${workerId} 消息失败:`, error);
-      this.emit('error', {
-        type: 'message',
+      this.emit("error", {
+        type: "message",
         workerId,
         error: error.message,
-        rawMessage: msg
+        rawMessage: msg,
       });
     }
   }
@@ -141,29 +171,29 @@ class TileService extends EventEmitter {
     return this.activeJobs.get(jobId);
   }
   /**
-  * 处理作业完成
-  */
+   * 处理作业完成
+   */
   handleJobCompletion(jobInfo) {
     // 标记作业状态为完成
-    jobInfo.status = 'completed';
+    jobInfo.status = "completed";
     jobInfo.endTime = Date.now();
     jobInfo.duration = jobInfo.endTime - jobInfo.startTime;
 
     // 作业完成事件
-    this.emit('job-completed', {
+    this.emit("job-completed", {
       jobId: jobInfo.jobId,
       downloaded: jobInfo.downloaded,
       errors: jobInfo.errors,
-      duration: jobInfo.duration
+      duration: jobInfo.duration,
     });
   }
 
   handleWorkerError(err, workerId) {
     this.logger.error(`工作线程 ${workerId} 错误:`, err);
-    this.emit('error', {
-      type: 'worker',
+    this.emit("error", {
+      type: "worker",
       workerId,
-      error: err.message
+      error: err.message,
     });
 
     // 重启工作线程
@@ -173,10 +203,10 @@ class TileService extends EventEmitter {
   handleWorkerExit(code, workerId) {
     if (code !== 0) {
       this.logger.error(`工作线程 ${workerId} 异常退出 (代码 ${code})`);
-      this.emit('error', {
-        type: 'exit',
+      this.emit("error", {
+        type: "exit",
         workerId,
-        code
+        code,
       });
 
       // 重启工作线程
@@ -199,20 +229,20 @@ class TileService extends EventEmitter {
       const worker = new Worker(this.workerScriptPath, {
         workerData: {
           storageDir: this.storageDir,
-          workerId
-        }
+          workerId,
+        },
       });
 
-      worker.on('message', (msg) => this.handleWorkerMessage(msg, workerId));
-      worker.on('error', (err) => this.handleWorkerError(err, workerId));
-      worker.on('exit', (code) => this.handleWorkerExit(code, workerId));
+      worker.on("message", (msg) => this.handleWorkerMessage(msg, workerId));
+      worker.on("error", (err) => this.handleWorkerError(err, workerId));
+      worker.on("exit", (code) => this.handleWorkerExit(code, workerId));
 
       this.workerPool[workerId] = {
         worker,
         busy: false,
         id: workerId,
         lastActivity: Date.now(),
-        currentJobId: null
+        currentJobId: null,
       };
 
       this.logger.info(`工作线程 ${workerId} 已重启`);
@@ -225,10 +255,10 @@ class TileService extends EventEmitter {
       }
     } catch (error) {
       this.logger.error(`重启工作线程 ${workerId} 失败:`, error);
-      this.emit('error', {
-        type: 'restart',
+      this.emit("error", {
+        type: "restart",
         workerId,
-        error: error.message
+        error: error.message,
       });
     }
   }
@@ -240,17 +270,17 @@ class TileService extends EventEmitter {
         const jobId = `job-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
         let taskInfo = {
           jobId,
-          type: 'task',
+          type: "task",
           status: "",
           tiles: [],
-          total: 0
-        }
+          total: 0,
+        };
         // 计算瓦片
-        this.logger.info("开始计算瓦片")
+        this.logger.info("开始计算瓦片");
         const resp = await calculateTiles(options);
-        this.logger.info(`完成瓦片计算，共计${resp.data.length}个瓦片`)
+        this.logger.info(`完成瓦片计算，共计${resp.data.length}个瓦片`);
         taskInfo.tiles = resp.data;
-        taskInfo.status = '完成瓦片计算';
+        taskInfo.status = "完成瓦片计算";
         taskInfo.total = resp.data.length;
         resolve(taskInfo);
         const jobInfo = {
@@ -261,19 +291,19 @@ class TileService extends EventEmitter {
           jobId,
           tiles: taskInfo.tiles,
           status: "开始下载任务",
-          tasksAssigned: 0,        // 已分配的任务数
-          tasksCompleted: 0,        // 已完成的任务数
-          allocatedTiles: 0,        // 已分配的瓦片数
-          perWorkerChunkSize: 0,     // 每个工作线程分配的子集大小
-          options
-        }
+          tasksAssigned: 0, // 已分配的任务数
+          tasksCompleted: 0, // 已完成的任务数
+          allocatedTiles: 0, // 已分配的瓦片数
+          perWorkerChunkSize: 0, // 每个工作线程分配的子集大小
+          options,
+        };
 
         // 0.5s后开始下载任务
         setTimeout(() => {
-          this.activeJobs.set(jobId, jobInfo)
-          this.emit('update-task', jobInfo)
-          this.startTask(jobInfo)
-        }, 500)
+          this.activeJobs.set(jobId, jobInfo);
+          this.updateUI(jobInfo);
+          this.startTask(jobInfo);
+        }, 0);
 
         return;
       } catch (error) {
@@ -282,41 +312,54 @@ class TileService extends EventEmitter {
     });
   }
 
+  updateUI(jobInfo) {
+    this.setJobInfo(jobInfo);
+    this.emit("update-task", jobInfo);
+  }
+
   startTask(jobInfo) {
     // return;
     // 计算每个工作线程的瓦片分配大小
-    this.calculateJobDistribution(jobInfo)
-    // 分发任务  
-    this.processJob(jobInfo)
+    this.calculateJobDistribution(jobInfo);
+    // 分发任务
+    this.processJob(jobInfo);
   }
 
   // 计算作业如何分配到各工作线程
   calculateJobDistribution(jobInfo) {
-    jobInfo.status = "计算每个线程处理瓦片大小"
+    jobInfo.status = "计算每个线程处理瓦片大小";
     // 计算每个工作线程应处理的瓦片数
     // 确保每个线程至少处理1个瓦片
-    jobInfo.perWorkerChunkSize = Math.max(1, Math.ceil(jobInfo.total / this.maxConcurrency));
+    jobInfo.perWorkerChunkSize = Math.max(
+      1,
+      Math.ceil(jobInfo.total / this.maxConcurrency),
+    );
 
     // 重置状态计数
     jobInfo.tasksAssigned = 0;
     jobInfo.tasksCompleted = 0;
     jobInfo.allocatedTiles = 0;
 
-    this.logger.info(`[${jobInfo.jobId}] 作业分配: ${this.maxConcurrency} 工作线程, 每线程处理 ${jobInfo.perWorkerChunkSize} 瓦片`);
-    this.emit('update-task', jobInfo)
+    this.logger.info(
+      `[${jobInfo.jobId}] 作业分配: ${this.maxConcurrency} 工作线程, 每线程处理 ${jobInfo.perWorkerChunkSize} 瓦片`,
+    );
+    this.updateUI(jobInfo);
   }
 
   // 处理单个作业-分发给多个工作线程
   processJob(jobInfo) {
     // 更新作业状态
-    jobInfo.status = '开始分发任务';
-    this.emit('update-task', jobInfo)
+    jobInfo.status = "开始分发任务";
+    this.updateUI(jobInfo);
     // 尽可能分配瓦片给空闲工作线程
     this.assignTilesToWorker(jobInfo);
   }
 
   assignTilesToWorker(jobInfo) {
-    while (jobInfo.allocatedTiles < jobInfo.total && this.hasAvailableWorker()) {
+    while (
+      jobInfo.allocatedTiles < jobInfo.total &&
+      this.hasAvailableWorker()
+    ) {
       const workerId = this.getAvailableWorkerId();
       // 没有空闲结束分配
       if (workerId === null) break;
@@ -324,7 +367,7 @@ class TileService extends EventEmitter {
       const startIndex = jobInfo.allocatedTiles;
       const endIndex = Math.min(
         jobInfo.allocatedTiles + jobInfo.perWorkerChunkSize,
-        jobInfo.total
+        jobInfo.total,
       );
 
       // 截取瓦片子集
@@ -338,12 +381,16 @@ class TileService extends EventEmitter {
       jobInfo.allocatedTiles = endIndex;
       jobInfo.tasksAssigned++;
 
-      this.logger.info(`分配${startIndex}~${endIndex}瓦片给工作线程${workerId}，共计${chunkSize}个瓦片`);
+      this.logger.info(
+        `分配${startIndex}~${endIndex}瓦片给工作线程${workerId}，共计${chunkSize}个瓦片`,
+      );
     }
 
     // 如果没有分配完所有瓦片，等待空闲工作线程
     if (jobInfo.allocatedTiles < jobInfo.total) {
-      this.logger.info(`[${jobInfo.jobId}] 等待空闲工作线程 (已分配 ${jobInfo.allocatedTiles}/${jobInfo.total})`);
+      this.logger.info(
+        `[${jobInfo.jobId}] 等待空闲工作线程 (已分配 ${jobInfo.allocatedTiles}/${jobInfo.total})`,
+      );
     } else {
       this.logger.info(`[${jobInfo.jobId}] 所有瓦片已分配到工作线程`);
     }
@@ -368,13 +415,13 @@ class TileService extends EventEmitter {
         workerId,
         startTime: Date.now(),
         chunkSize,
-        completed: 0
+        completed: 0,
       };
 
-      this.emit('worker-task-assigned', taskInfo);
+      this.emit("worker-task-assigned", taskInfo);
       // 发送任务信息给工作线程
       this.workerPool[workerId].worker.postMessage({
-        type: 'download-chunk',
+        type: "download-chunk",
         jobId: jobInfo.jobId,
         workerId,
         tiles: tileChunk,
@@ -382,7 +429,7 @@ class TileService extends EventEmitter {
         storageDir: this.storageDir,
         urlTemplate: jobInfo.options.urlTemplate,
         subdomains: jobInfo.options.subdomains,
-        storagePath: jobInfo.options.storagePath
+        storagePath: jobInfo.options.storagePath,
       });
     } catch (error) {
       this.logger.error(`给工作线程 ${workerId} 分配任务失败:`, error);
@@ -391,10 +438,8 @@ class TileService extends EventEmitter {
     }
   }
 
-
-
   hasAvailableWorker() {
-    return Object.values(this.workerPool).some(worker => !worker.busy);
+    return Object.values(this.workerPool).some((worker) => !worker.busy);
   }
 
   getAvailableWorkerId() {
@@ -406,10 +451,10 @@ class TileService extends EventEmitter {
 
   // 安全关闭所有工作线程
   shutdown() {
-    this.logger.info('关闭瓦片服务...');
+    this.logger.info("关闭瓦片服务...");
 
     // 终止所有工作线程
-    Object.values(this.workerPool).forEach(worker => {
+    Object.values(this.workerPool).forEach((worker) => {
       try {
         if (worker.worker) {
           worker.worker.terminate();
@@ -420,7 +465,7 @@ class TileService extends EventEmitter {
       }
     });
 
-    this.logger.info('瓦片服务已关闭');
+    this.logger.info("瓦片服务已关闭");
   }
 }
 

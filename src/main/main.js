@@ -5,7 +5,7 @@ const path = require('path');
 const TileService = require('../backend/TileService');
 
 const isDev = require('electron-is-dev');
-const defaultDownloadPath = app.getPath('downloads');
+const defaultDownloadPath = app.getPath('downloads')+'/map';
 
 let mainWindow;
 let tileService;
