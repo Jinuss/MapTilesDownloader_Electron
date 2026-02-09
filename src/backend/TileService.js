@@ -298,7 +298,7 @@ class TileService extends EventEmitter {
           options,
         };
 
-        // 0.5s后开始下载任务
+        // 开始下载任务
         setTimeout(() => {
           this.activeJobs.set(jobId, jobInfo);
           this.updateUI(jobInfo);
@@ -421,7 +421,7 @@ class TileService extends EventEmitter {
       this.emit("worker-task-assigned", taskInfo);
       // 发送任务信息给工作线程
       this.workerPool[workerId].worker.postMessage({
-        type: "download-chunk",
+        type: MESSAGE_TYPE.WORKER_CHUNK_DOWNLOAD,
         jobId: jobInfo.jobId,
         workerId,
         tiles: tileChunk,

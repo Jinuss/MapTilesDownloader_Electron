@@ -1,16 +1,17 @@
 const { parentPort, workerData } = require("worker_threads");
 const path = require("path");
-const fs = require("fs-extra");
-const axios = require("axios");
-const { generateTileUrl, formatMilliseconds } = require("./Utils.js");
+const {
+  generateTileUrl,
+  formatMilliseconds,
+  fileExists,
+  saveTile,
+} = require("./Utils.js");
 const { MESSAGE_TYPE } = require("./const.js");
+const { downloadTile } = require("./api.js");
 
 // 获取存储目录和workerId
 const storageDir = workerData?.storageDir;
 const workerId = workerData?.workerId || 0;
-
-// 文件缓存
-const fileCache = new Map();
 
 // 发送日志函数
 function log(message, level = "info") {
@@ -25,79 +26,9 @@ function log(message, level = "info") {
   }
 }
 
-// 检查文件是否存在
-async function fileExists(filePath) {
-  if (fileCache.has(filePath)) {
-    return fileCache.get(filePath);
-  }
-
-  const exists = await fs.pathExists(filePath);
-  fileCache.set(filePath, exists);
-  return exists;
-}
-
-// 下载瓦片
-async function downloadTile(url, maxRetries = 3, retryDelay = 1000) {
-  let retries = 0;
-
-  while (retries < maxRetries) {
-    try {
-      const response = await axios.get(url, {
-        responseType: "arraybuffer",
-        timeout: 10000,
-        headers: {
-          "User-Agent": "Mozilla/5.0 (compatible; TileDownloader/1.0)",
-          "Accept-Encoding": "gzip, deflate",
-        },
-      });
-
-      return {
-        status: "success",
-        buffer: response.data,
-      };
-    } catch (error) {
-      if (error.response && error.response.status === 404) {
-        log(`瓦片不存在: ${url}`, "warn");
-        return { status: "not_found" };
-      }
-
-      retries++;
-      if (retries < maxRetries) {
-        log(
-          `下载失败 (${url}), 重试 ${retries}/${maxRetries}: ${error.message}`,
-          "warn",
-        );
-        await new Promise((resolve) =>
-          setTimeout(resolve, retryDelay * retries),
-        );
-      } else {
-        log(`下载失败 (${url}) 达到最大重试次数: ${error.message}`, "error");
-        return {
-          status: "error",
-          error: `下载失败: ${error.message}`,
-        };
-      }
-    }
-  }
-}
-
-// 保存瓦片
-async function saveTile(filePath, buffer) {
-  try {
-    await fs.ensureDir(path.dirname(filePath));
-    await fs.writeFile(filePath, buffer);
-    fileCache.set(filePath, true);
-
-    return true;
-  } catch (error) {
-    log(`保存瓦片失败: ${filePath}: ${error.message}`, "error");
-    return false;
-  }
-}
-
 // 消息处理
 parentPort.on("message", async (msg) => {
-  if (msg.type !== "download-chunk") return;
+  if (msg.type !== MESSAGE_TYPE.WORKER_CHUNK_DOWNLOAD) return;
 
   const { jobId, tiles = [], urlTemplate, subdomains, storagePath } = msg;
   const startTime = Date.now();
@@ -192,8 +123,6 @@ parentPort.on("message", async (msg) => {
     messageData.status = `线程${workerId + 1}失败`;
     parentPort.postMessage(messageData);
   } finally {
-    // 清理资源
-    fileCache.clear();
   }
 });
 
