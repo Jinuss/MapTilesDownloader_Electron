@@ -30,12 +30,16 @@ function createWindow() {
     },
   });
 
-  if (isDev) {
-    mainWindow.loadURL("http://localhost:3005");
-    mainWindow.webContents.openDevTools();
-  } else {
-    mainWindow.loadFile(path.join(__dirname, "dist/renderer/index.html"));
-  }
+  // if (isDev) {
+  //   mainWindow.loadURL("http://localhost:3005");
+  //   mainWindow.webContents.openDevTools();
+  // } else {
+  const ui_url=path.join(__dirname, "../dist/renderer/index.html")  
+  console.log("🚀 ~ createWindow ~ __dirname:",ui_url);
+  mainWindow.loadFile(ui_url);
+
+  mainWindow.webContents.openDevTools();
+  // }
 }
 
 app.setLoginItemSettings({

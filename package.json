@@ -10,13 +10,13 @@
     "watch:backend": "nodemon --watch src/backend --exec electron .",
     "test": "echo \"Error: no test specified\" && exit 1",
     "package": "electron-forge package",
-    "build:renderer":"vite build src/renderer",
-    "build:backend":"electron-forge make",
-    "make": "concurrently \"npm run build:renderer\" \"npm run build:backend\""
+    "build:renderer": "vite build src/renderer",
+    "build:backend": "electron-forge make",
+    "make": "npm run build:backend"
   },
   "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "author": "Jinus",
+  "license": "MIT",
   "devDependencies": {
     "@electron-forge/cli": "^7.11.1",
     "@electron-forge/maker-deb": "^7.11.1",
@@ -28,8 +28,10 @@
     "@electron/fuses": "^1.8.0",
     "@vitejs/plugin-vue": "^5.2.4",
     "concurrently": "^9.1.2",
+    "cross-env": "^10.1.0",
     "electron": "^36.3.2",
     "nodemon": "^3.1.10",
+    "rimraf": "^6.1.2",
     "vite": "^6.3.5"
   },
   "dependencies": {
