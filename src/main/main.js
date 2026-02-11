@@ -1,11 +1,18 @@
 // main.js
-const { app, BrowserWindow, ipcMain, session, dialog, shell } = require('electron');
+const {
+  app,
+  BrowserWindow,
+  ipcMain,
+  session,
+  dialog,
+  shell,
+} = require("electron");
 
-const path = require('path');
-const TileService = require('../backend/TileService');
+const path = require("path");
+const TileService = require("../backend/TileService");
 
-const isDev = require('electron-is-dev');
-const defaultDownloadPath = app.getPath('downloads')+'/map';
+const isDev = require("electron-is-dev");
+const defaultDownloadPath = app.getPath("downloads") + "/map";
 
 let mainWindow;
 let tileService;
@@ -15,26 +22,29 @@ function createWindow() {
     width: 1200,
     height: 800,
     autoHideMenuBar: true,
-    icon: path.join(__dirname, 'assets/map.png'), // 图标路径
+    icon: path.join(__dirname, "assets/map.png"), // 图标路径
     webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
+      preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
-      nodeIntegration: false
-    }
+      nodeIntegration: false,
+    },
   });
 
-
   if (isDev) {
-    mainWindow.loadURL('http://localhost:3005');
+    mainWindow.loadURL("http://localhost:3005");
     mainWindow.webContents.openDevTools();
   } else {
-    mainWindow.loadFile(path.join(__dirname, 'dist/index.html'));
+    mainWindow.loadFile(path.join(__dirname, "dist/renderer/index.html"));
   }
 }
 
+app.setLoginItemSettings({
+  openAtLogin: true,
+  path: process.execPath,
+  args: [],
+});
+
 app.whenReady().then(() => {
-  const userAgent = session.defaultSession.getUserAgent()
-  console.log('useAgent', userAgent)
   // 创建主窗口
   createWindow();
 
@@ -42,40 +52,39 @@ app.whenReady().then(() => {
   tileService = new TileService(defaultDownloadPath);
 
   //
-  tileService.on('progress', (progress) => {
-    mainWindow.webContents.send('tile-job-progress', progress);
+  tileService.on("progress", (progress) => {
+    mainWindow.webContents.send("tile-job-progress", progress);
   });
 
-  tileService.on('job-update', (update) => {
-    mainWindow.webContents.send('tile-job-update', update);
+  tileService.on("job-update", (update) => {
+    mainWindow.webContents.send("tile-job-update", update);
   });
 
-  tileService.on('job-failed', (error) => {
-    mainWindow.webContents.send('tile-job-failed', error);
+  tileService.on("job-failed", (error) => {
+    mainWindow.webContents.send("tile-job-failed", error);
   });
 
-  tileService.on('error', (error) => {
-    console.error('瓦片服务错误:', error);
-    mainWindow.webContents.send('tile-service-error', error);
+  tileService.on("error", (error) => {
+    console.error("瓦片服务错误:", error);
+    mainWindow.webContents.send("tile-service-error", error);
   });
 
   // 监听线程任务分配
-  tileService.on('worker-task-assigned', (workerTaskInfo) => {
-    mainWindow.webContents.send('assigned-task-worker', workerTaskInfo)
-  })
+  tileService.on("worker-task-assigned", (workerTaskInfo) => {
+    mainWindow.webContents.send("assigned-task-worker", workerTaskInfo);
+  });
   // 监听线程任务进度
-  tileService.on('chunk-progress', (progress) => {
-    mainWindow.webContents.send('chunk-progress', progress);
-  })
+  tileService.on("update-worker-progress", (progress) => {
+    mainWindow.webContents.send("update-worker-progress", progress);
+  });
 
-  
   // 监听任务信息更新
-  tileService.on('update-task', (taskInfo) => {
-    mainWindow.webContents.send('update-task', taskInfo);
-  })
+  tileService.on("update-task", (taskInfo) => {
+    mainWindow.webContents.send("update-task", taskInfo);
+  });
 
   // 设置IPC通信
-  ipcMain.handle('calculate-tiles', async (event, options) => {
+  ipcMain.handle("calculate-tiles", async (event, options) => {
     try {
       const result = await tileService.getTiles(options);
       return { success: true, result };
@@ -84,40 +93,39 @@ app.whenReady().then(() => {
     }
   });
 
-  ipcMain.handle('get-queue-status', async () => {
+  ipcMain.handle("get-queue-status", async () => {
     return {
-      active: Object.values(tileService.workerPool).filter(w => w.busy).length,
-      queued: tileService.downloadQueue.length
+      active: Object.values(tileService.workerPool).filter((w) => w.busy)
+        .length,
+      queued: tileService.downloadQueue.length,
     };
   });
 
-
   // 处理打开文件夹请求
-  ipcMain.handle('open-folder', (event, path) => {
-    return shell.openPath(path)
-  })
-
-  // 处理选择文件夹请求
-  ipcMain.handle('select-folder', async (event, path) => {
-    const result = await dialog.showOpenDialog({
-      properties: ['openDirectory'],
-      defaultPath: path
-    })
-    return result.filePaths[0] || null
-  })
-
-  // 处理通知默认存储目录
-  ipcMain.handle('get-default-folder', () => {
-    return tileService.storageDir
-  })
-
-
-  // 处理应用关闭
-  app.on('before-quit', () => {
-    tileService.shutdown();
+  ipcMain.handle("open-folder", (event, path) => {
+    return shell.openPath(path);
   });
 
-  app.on('window-all-closed', () => {
-    if (process.platform !== 'darwin') app.quit();
+  // 处理选择文件夹请求
+  ipcMain.handle("select-folder", async (event, path) => {
+    const result = await dialog.showOpenDialog({
+      properties: ["openDirectory"],
+      defaultPath: path,
+    });
+    return result.filePaths[0] || null;
+  });
+
+  // 处理通知默认存储目录
+  ipcMain.handle("get-default-folder", () => {
+    return tileService.storageDir;
+  });
+
+  // 处理应用关闭
+  app.on("before-quit", () => {
+    // tileService.shutdown();
+  });
+
+  app.on("window-all-closed", () => {
+    if (process.platform !== "darwin") app.quit();
   });
 });

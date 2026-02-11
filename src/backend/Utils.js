@@ -1,4 +1,5 @@
 const fs = require("fs-extra");
+const path = require("path");
 
 // 计算瓦片
 async function calculateTiles(options) {
@@ -154,11 +155,11 @@ async function fileExists(filePath) {
 }
 
 // 保存瓦片
-async function saveTile(filePath, buffer) {
+async function saveTile(filePath, buffer, log) {
   try {
     await fs.ensureDir(path.dirname(filePath));
     await fs.writeFile(filePath, buffer);
-    fileCache.set(filePath);
+    fileCache.add(filePath);
 
     return true;
   } catch (error) {
@@ -167,10 +168,29 @@ async function saveTile(filePath, buffer) {
   }
 }
 
+function sumStatsFast(obj) {
+  let completed = 0;
+  let fail = 0;
+  let skip = 0;
+
+  const keys = Object.keys(obj);
+  for (let i = 0; i < keys.length; i++) {
+    const item = obj[keys[i]];
+    if (item) {
+      completed += item.completed || 0;
+      fail += item.fail || 0;
+      skip += item.skip || 0;
+    }
+  }
+
+  return { completed, fail, skip };
+}
+
 module.exports = {
   calculateTiles,
   generateTileUrl,
   formatMilliseconds,
   fileExists,
-  saveTile
+  saveTile,
+  sumStatsFast,
 };

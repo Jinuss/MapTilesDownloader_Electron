@@ -30,20 +30,18 @@ function log(message, level = "info") {
 parentPort.on("message", async (msg) => {
   if (msg.type !== MESSAGE_TYPE.WORKER_CHUNK_DOWNLOAD) return;
 
-  const { jobId, tiles = [], urlTemplate, subdomains, storagePath } = msg;
+  const { tiles = [], urlTemplate, subdomains, storagePath } = msg;
   const startTime = Date.now();
-  const totalTiles = tiles.length;
+  const tileLength = tiles.length;
 
-  log(`开始线程任务 ${workerId}: ${totalTiles} 个瓦片`, "info");
+  log(`开始线程任务 ${workerId}: ${tileLength} 个瓦片`, "info");
 
   // 定义消息结构：非日志类
   let messageData = {
-    jobId, // 任务Id
     workerId, // 线程id
     type: "", // 消息类型
     status: "", //描述
-    // tiles, // 分配的瓦片
-    chunkSize: totalTiles, // 分配瓦片的大小
+    chunkSize: tileLength, // 分配瓦片的大小
     completed: 0, //下载成功
     fail: 0, // 下载失败
     skip: 0, // 跳过
@@ -51,12 +49,7 @@ parentPort.on("message", async (msg) => {
 
   try {
     // 报告任务开始
-    messageData.type = MESSAGE_TYPE.WORKER_START;
-    messageData.status = `线程任务${workerId + 1}开始`;
-
-    parentPort.postMessage(messageData);
-
-    for (let i = 0; i < totalTiles; i++) {
+    for (let i = 0; i < tileLength; i++) {
       const tile = tiles[i];
       const { z, x, y } = tile;
 
@@ -80,7 +73,7 @@ parentPort.on("message", async (msg) => {
 
       if (result.status === "success") {
         // 保存瓦片
-        const saveResult = await saveTile(tilePath, result.buffer);
+        const saveResult = await saveTile(tilePath, result.buffer, log);
         if (saveResult) {
           messageData.completed++;
         } else {
@@ -90,12 +83,13 @@ parentPort.on("message", async (msg) => {
         log(`瓦片找不到: ${tilePath}`, "warn");
         messageData.skip++;
       } else {
+        log(`瓦片下载失败: ${tilePath}`, "error");
         messageData.fail++;
       }
       // 报告进度
-      if (i % 10 === 0 || i === totalTiles - 1) {
+      if (i % 10 === 0 || i === tileLength - 1) {
         messageData.type = MESSAGE_TYPE.WORKER_PROGRESS;
-        messageData.status = `线程任务${workerId + 1}下载${z}/${x}/${y}中`;
+        messageData.status = `线程任务${workerId}下载中`;
         parentPort.postMessage(messageData);
       }
       // 避免内存溢出
@@ -106,45 +100,22 @@ parentPort.on("message", async (msg) => {
 
     // 任务完成
     log(
-      `线程任务 ${workerId + 1} 完成: ${messageData.completed} 下载, ${messageData.skip} 跳过, ${messageData.fail} 失败`,
+      `线程任务 ${workerId} 完成: ${messageData.completed} 下载, ${messageData.skip} 跳过, ${messageData.fail} 失败`,
       "info",
     );
 
     messageData.type = MESSAGE_TYPE.WORKER_COMPLETED;
-    messageData.status = `线程任务${workerId + 1}完成`;
+    messageData.status = `线程任务${workerId}完成`;
     messageData.endTime = Date.now();
     messageData.duration = formatMilliseconds(Date.now() - startTime);
 
     parentPort.postMessage(messageData);
   } catch (error) {
     // 任务失败
-    log(`任务 ${jobId} 失败: ${error.message}`, "error");
+    log(`线程任务 ${workerId} 失败: ${error.message}`, "error");
     messageData.type = MESSAGE_TYPE.WORKER_ERROR;
-    messageData.status = `线程${workerId + 1}失败`;
+    messageData.status = `线程${workerId}失败`;
     parentPort.postMessage(messageData);
   } finally {
   }
-});
-
-// 错误处理
-process.on("unhandledRejection", (reason, promise) => {
-  log(`未处理的Rejection: ${reason}`, "error");
-  if (parentPort) {
-    parentPort.postMessage({
-      type: MESSAGE_TYPE.WORKER_ERROR,
-      error: `未处理的Rejection: ${reason}`,
-    });
-  }
-});
-
-process.on("uncaughtException", (error) => {
-  log(`未捕获的异常: ${error.message}\n${error.stack}`, "error");
-  if (parentPort) {
-    parentPort.postMessage({
-      type: MESSAGE_TYPE.WORKER_ERROR,
-      error: `未捕获的异常: ${error.message}`,
-    });
-  }
-  // 进程可能不稳定，退出
-  process.exit(1);
 });

@@ -8,8 +8,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onWorkerTaskAssigned: (callback) => ipcRenderer.on('assigned-task-worker', (event, data) => {
     callback(data)
   }),
+
   // 监听线程任务进度
-  onWorkerTaskProgress: (callback) => ipcRenderer.on('chunk-progress', (event, data) => {
+  onWorkerProgress: (callback) => ipcRenderer.on('update-worker-progress', (event, data) => {
     callback(data)
   }),
   

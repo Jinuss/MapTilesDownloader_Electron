@@ -4,6 +4,7 @@ export const ELECTRON_APIS = {
   SELECT_FOLDER: "selectFolder", // 打开目录选择器
   GET_TILES: "calculateTiles", // 获取瓦片
   ON_TASK_UPDATE: "onTaskUpdate", //任务更新
+  ON_WORKER_UPDATE: "onWorkerProgress", //线程更新
 };
 
 export class TaskChannel {

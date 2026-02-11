@@ -29,12 +29,21 @@ const taskInfo = ref({
   fail: 0,
 });
 
+const workerInfo = ref({
+  completed: 0,
+  skip: 0,
+  fail: 0,
+});
+
 const initChannelListener = () => {
   const channel = getChannel();
   if (channel && channel.keyToListenEvent) {
     channel.keyToListenEvent(ELECTRON_APIS.ON_TASK_UPDATE, (data) => {
-      console.log("🚀 ~ initChannelListener ~ data:", data);
       taskInfo.value = { ...taskInfo.value, ...data };
+    });
+
+    channel.keyToListenEvent(ELECTRON_APIS.ON_WORKER_UPDATE, (data) => {
+      workerInfo.value = { ...workerInfo.value, ...data };
     });
   }
 };
@@ -58,16 +67,16 @@ watch(
     </div>
     <div class="count">
       <p>总计：{{ taskInfo.total }}</p>
-      <p>完成：{{ taskInfo.completed }}</p>
-      <p>跳过：{{ taskInfo.skip }}</p>
-      <p>失败：{{ taskInfo.fail }}</p>
+      <p>完成：{{ workerInfo.completed }}</p>
+      <p>跳过：{{ workerInfo.skip }}</p>
+      <p>失败：{{ workerInfo.fail }}</p>
     </div>
     <div class="progress-ring">
       <el-progress
         type="circle"
         :percentage="
-          taskInfo.completed
-            ? Math.floor((taskInfo.completed * 100) / taskInfo.total)
+          workerInfo.completed
+            ? Math.floor((workerInfo.completed * 100) / taskInfo.total)
             : 0
         "
       />

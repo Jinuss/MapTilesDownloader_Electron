@@ -5,55 +5,44 @@
   "main": "src/main/main.js",
   "scripts": {
     "dev": "concurrently \"vite --config src/renderer/vite.config.js\" \"electron .\"",
-    "start": "vite --config src/renderer/vite.config.js",
-    "build": "electron-builder",
-    "pack": "electron-builder --dir",
-    "dist": "electron-builder -w nsis",
     "watch": "concurrently \"npm run watch:renderer\" \"npm run watch:backend\"",
-    "watch:renderer": "vite build --watch",
+    "watch:renderer": "vite build --watch src/renderer",
     "watch:backend": "nodemon --watch src/backend --exec electron .",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "package": "electron-forge package",
+    "build:renderer":"vite build src/renderer",
+    "build:backend":"electron-forge make",
+    "make": "concurrently \"npm run build:renderer\" \"npm run build:backend\""
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "devDependencies": {
+    "@electron-forge/cli": "^7.11.1",
+    "@electron-forge/maker-deb": "^7.11.1",
+    "@electron-forge/maker-rpm": "^7.11.1",
+    "@electron-forge/maker-squirrel": "^7.11.1",
+    "@electron-forge/maker-zip": "^7.11.1",
+    "@electron-forge/plugin-auto-unpack-natives": "^7.11.1",
+    "@electron-forge/plugin-fuses": "^7.11.1",
+    "@electron/fuses": "^1.8.0",
     "@vitejs/plugin-vue": "^5.2.4",
     "concurrently": "^9.1.2",
     "electron": "^36.3.2",
-    "electron-builder": "^26.0.12",
     "nodemon": "^3.1.10",
     "vite": "^6.3.5"
   },
   "dependencies": {
     "axios": "^1.9.0",
     "electron-is-dev": "^3.0.1",
+    "electron-squirrel-startup": "^1.0.1",
     "element-plus": "^2.9.11",
     "express": "^5.1.0",
     "fs-extra": "^11.3.0",
     "leaflet": "^1.9.4",
     "leaflet-draw": "^1.0.4",
-    "mapbox-gl": "^3.12.0",
     "pinia": "^3.0.2",
     "unplugin-auto-import": "^19.3.0",
     "vue": "^3.5.16"
-  },
-  "build": {
-    "appId": "com.mapTilesDownload.leador",
-    "productName": "MapTilesDownload",
-    "copyright": "Copyright © 2025",
-    "directories": {
-      "output": "dist"
-    },
-    "win": {
-      "target": "nsis",
-      "icon": "src/build/map.ico",
-      "requestedExecutionLevel": "asInvoker"
-    },
-    "nsis": {
-      "oneClick": true,
-      "perMachine": false,
-      "allowElevation": false
-    }
   }
 }

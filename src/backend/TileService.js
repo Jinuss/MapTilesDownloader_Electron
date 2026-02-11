@@ -3,17 +3,19 @@ const fs = require("fs-extra");
 const { Worker } = require("worker_threads");
 const EventEmitter = require("events");
 const os = require("os");
-const { calculateTiles } = require("./Utils.js");
+const { calculateTiles, sumStatsFast } = require("./Utils.js");
 const Logger = require("./log.js");
 const { MESSAGE_TYPE } = require("./const.js");
 
 class TileService extends EventEmitter {
   constructor(defaultDownloadPath) {
     super();
+
     this.logger = new Logger({
       logPath: defaultDownloadPath,
       fileName: "log.txt",
     });
+
     // 解决核心错误：使用传入的用户数据路径
     this.storageDir = path.join(defaultDownloadPath, "");
 
@@ -22,7 +24,7 @@ class TileService extends EventEmitter {
 
     this.logger.info(`瓦片默认存储目录: ${this.storageDir}`);
     this.workerPool = {};
-    this.activeDownloads = 0;
+
     this.maxConcurrency = os.cpus().length; // 根据CPU核心数设置并发数
 
     this.activeJobs = new Map();
@@ -30,17 +32,11 @@ class TileService extends EventEmitter {
     // 创建 worker 源文件路径
     this.workerScriptPath = path.join(__dirname, "tileWorker.js");
 
+    // 全局线程进度
+    this.workerData = {};
+
     // 初始化工作线程池
     this.initWorkerPool();
-
-    // 全局变量
-    this.jobInfo = {};
-  }
-  setJobInfo(info) {
-    this.jobInfo = { ...this.jobInfo, ...info };
-  }
-  getJobInfo() {
-    return this.jobInfo;
   }
 
   async initWorkerPool() {
@@ -73,12 +69,18 @@ class TileService extends EventEmitter {
           lastActivity: Date.now(),
           currentJobId: null,
         };
+
+        this.workerData[i] = {
+          workerId: i,
+          completed: 0,
+          fail: 0,
+          skip: 0,
+        };
       }
 
       this.logger.info(`工作线程池初始化成功`);
     } catch (error) {
       this.logger.error("初始化工作线程池失败:", error);
-      this.emit("error", { type: "init", error: error.message });
     }
   }
 
@@ -86,75 +88,12 @@ class TileService extends EventEmitter {
     if (!msg || !msg.type) return;
 
     try {
-      const { type } = msg;
-      if (msg.type === "log") {
-        this.logger.info(msg.message);
-      }
-
-      // 更新前端进度
-      if (type === MESSAGE_TYPE.WORKER_PROGRESS) {
-        let info = this.getJobInfo();
-        let { skip, fail, completed } = info;
-        info = {
-          ...info,
-          status: "瓦片下载中",
-          skip: skip + msg.skip,
-          fail: fail + msg.fail,
-          completed: completed + msg.completed,
-        };
-        this.updateUI(info);
-      }
-
-      if (msg.type === "progress") {
-        // 转发进度更新
-        this.emit("chunk-progress", {
-          ...msg,
-          workerId,
-        });
-      } else if (msg.type === "chunk-completed") {
-        const { jobId, chunkDownloaded, chunkErrors, chunkStartIndex } = msg;
-
-        // 更新工作线程状态
-        this.workerPool[workerId].busy = false;
-        this.workerPool[workerId].lastActivity = Date.now();
-        this.workerPool[workerId].currentJobId = null;
-
-        // 查找对应的作业
-        const jobInfo = this.findJob(jobId);
-        if (!jobInfo) {
-          console.warn(`收到未知作业的完成消息: ${jobId}`);
-          return;
-        }
-
-        // 更新作业状态
-        jobInfo.downloaded += chunkDownloaded;
-        jobInfo.errors += chunkErrors;
-        jobInfo.tasksCompleted++;
-
-        // 计算作业整体进度
-        jobInfo.progress = Math.min(
-          100,
-          Math.round((jobInfo.downloaded / jobInfo.total) * 100),
-        );
-
-        // 任务完成事件
-        this.emit("task-completed", {
-          jobId,
-          workerId,
-          chunkDownloaded,
-          chunkErrors,
-          chunkStartIndex,
-        });
-
-        // 作业完成事件
-        if (jobInfo.tasksCompleted >= jobInfo.tasksAssigned) {
-          this.handleJobCompletion(jobInfo);
-        } else {
-          // 继续分配剩余瓦片
-          this.assignTilesToWorker(jobInfo);
-        }
-      } else if (msg.type === MESSAGE_TYPE.WORKER_LOG) {
-        this.logger.info(msg.message);
+      const { type, message } = msg;
+      // 日志类
+      if (type === MESSAGE_TYPE.WORKER_LOG) {
+        this.logger[msg.level || "info"](message);
+      } else if (type === MESSAGE_TYPE.WORKER_PROGRESS) {
+        this.updateWorkerProgress({ ...msg });
       }
     } catch (error) {
       this.logger.error(`处理工作线程 ${workerId} 消息失败:`, error);
@@ -167,25 +106,16 @@ class TileService extends EventEmitter {
     }
   }
 
-  findJob(jobId) {
-    return this.activeJobs.get(jobId);
-  }
-  /**
-   * 处理作业完成
-   */
-  handleJobCompletion(jobInfo) {
-    // 标记作业状态为完成
-    jobInfo.status = "completed";
-    jobInfo.endTime = Date.now();
-    jobInfo.duration = jobInfo.endTime - jobInfo.startTime;
-
-    // 作业完成事件
-    this.emit("job-completed", {
-      jobId: jobInfo.jobId,
-      downloaded: jobInfo.downloaded,
-      errors: jobInfo.errors,
-      duration: jobInfo.duration,
-    });
+  updateWorkerProgress(workerData) {
+    const { workerId, completed, fail, skip } = workerData;
+    this.workerData[workerId] = {
+      ...this.workerData[workerId],
+      workerId,
+      fail,
+      skip,
+      completed,
+    };
+    this.emit("update-worker-progress", sumStatsFast(this.workerData));
   }
 
   handleWorkerError(err, workerId) {
@@ -208,58 +138,8 @@ class TileService extends EventEmitter {
         workerId,
         code,
       });
-
-      // 重启工作线程
-      this.restartWorker(workerId);
     } else {
       this.logger.info(`工作线程 ${workerId} 正常退出`);
-    }
-  }
-
-  restartWorker(workerId) {
-    try {
-      this.logger.info(`重启工作线程 ${workerId}...`);
-
-      // 终止旧工作线程
-      if (this.workerPool[workerId]?.worker) {
-        this.workerPool[workerId].worker.terminate();
-      }
-
-      // 创建新工作线程
-      const worker = new Worker(this.workerScriptPath, {
-        workerData: {
-          storageDir: this.storageDir,
-          workerId,
-        },
-      });
-
-      worker.on("message", (msg) => this.handleWorkerMessage(msg, workerId));
-      worker.on("error", (err) => this.handleWorkerError(err, workerId));
-      worker.on("exit", (code) => this.handleWorkerExit(code, workerId));
-
-      this.workerPool[workerId] = {
-        worker,
-        busy: false,
-        id: workerId,
-        lastActivity: Date.now(),
-        currentJobId: null,
-      };
-
-      this.logger.info(`工作线程 ${workerId} 已重启`);
-
-      // 检查是否有任务需要恢复
-      if (this.workerPool[workerId].currentJobId) {
-        this.recoverJob(workerId, this.workerPool[workerId].currentJobId);
-      } else {
-        // this.processQueue();
-      }
-    } catch (error) {
-      this.logger.error(`重启工作线程 ${workerId} 失败:`, error);
-      this.emit("error", {
-        type: "restart",
-        workerId,
-        error: error.message,
-      });
     }
   }
 
@@ -313,12 +193,10 @@ class TileService extends EventEmitter {
   }
 
   updateUI(jobInfo) {
-    this.setJobInfo(jobInfo);
     this.emit("update-task", jobInfo);
   }
 
   startTask(jobInfo) {
-    // return;
     // 计算每个工作线程的瓦片分配大小
     this.calculateJobDistribution(jobInfo);
     // 分发任务
@@ -328,8 +206,6 @@ class TileService extends EventEmitter {
   // 计算作业如何分配到各工作线程
   calculateJobDistribution(jobInfo) {
     jobInfo.status = "计算每个线程处理瓦片大小";
-    // 计算每个工作线程应处理的瓦片数
-    // 确保每个线程至少处理1个瓦片
     jobInfo.perWorkerChunkSize = Math.max(
       1,
       Math.ceil(jobInfo.total / this.maxConcurrency),
@@ -410,22 +286,24 @@ class TileService extends EventEmitter {
       this.workerPool[workerId].lastActivity = Date.now();
 
       // 更新任务状态
-      const taskInfo = {
+      const workInfo = {
         jobId: jobInfo.jobId,
         workerId,
         startTime: Date.now(),
         chunkSize,
         completed: 0,
       };
+      this.workerData[workerId] = {
+        ...this.workerData[workerId],
+        ...workInfo,
+      };
 
-      this.emit("worker-task-assigned", taskInfo);
       // 发送任务信息给工作线程
       this.workerPool[workerId].worker.postMessage({
         type: MESSAGE_TYPE.WORKER_CHUNK_DOWNLOAD,
         jobId: jobInfo.jobId,
         workerId,
         tiles: tileChunk,
-        chunkStartIndex: jobInfo.allocatedTiles,
         storageDir: this.storageDir,
         urlTemplate: jobInfo.options.urlTemplate,
         subdomains: jobInfo.options.subdomains,
