@@ -11,7 +11,6 @@ const {
 const path = require("path");
 const TileService = require("../backend/TileService");
 
-const isDev = require("electron-is-dev");
 const defaultDownloadPath = app.getPath("downloads") + "/map";
 
 let mainWindow;
@@ -22,7 +21,7 @@ function createWindow() {
     width: 1200,
     height: 800,
     autoHideMenuBar: true,
-    icon: path.join(__dirname, "assets/map.png"), // 图标路径
+    icon: path.join(__dirname, "assets/map.ico"), // 图标路径
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
@@ -34,11 +33,11 @@ function createWindow() {
   //   mainWindow.loadURL("http://localhost:3005");
   //   mainWindow.webContents.openDevTools();
   // } else {
-  const ui_url=path.join(__dirname, "../dist/renderer/index.html")  
-  console.log("🚀 ~ createWindow ~ __dirname:",ui_url);
+  const ui_url = path.join(__dirname, "../dist/index.html");
+  console.log("🚀 ~ createWindow ~ __dirname:", ui_url);
   mainWindow.loadFile(ui_url);
 
-  mainWindow.webContents.openDevTools();
+  // mainWindow.webContents.openDevTools();
   // }
 }
 
