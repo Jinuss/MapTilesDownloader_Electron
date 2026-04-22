@@ -19,7 +19,9 @@ let tileService;
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1200,
-    height: 800,
+    height: 675,
+    minWidth: 800,
+    minHeight: 650,
     autoHideMenuBar: true,
     icon: path.join(__dirname, "assets/map.ico"), // 图标路径
     webPreferences: {
@@ -28,6 +30,8 @@ function createWindow() {
       nodeIntegration: false,
     },
   });
+
+  // mainWindow.setAspectRatio(16 / 9);
 
   // if (isDev) {
   //   mainWindow.loadURL("http://localhost:3005");

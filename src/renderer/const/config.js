@@ -2,7 +2,7 @@
 export const BASE_MAP_TILES_URL = [
     { url: "https://webrd01.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=7&x={x}&y={y}&z={z}", layerName: "高德电子底图", type: "gd" }]
 
-export const TDT_TOKEN = "d083e4cf30bfc438ef93436c10c2c20a"
+export const TDT_TOKEN = "a76b9ea6e49fb0eecdb1ed34d1e75930"
 
 export const TDT_LAYERS = [
     {
